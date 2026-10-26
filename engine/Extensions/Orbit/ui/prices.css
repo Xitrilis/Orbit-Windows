@@ -51,7 +51,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  will-change: transform;
+  
 }
 .deal-filter-btn:hover {
   background: #202834;
@@ -170,14 +170,12 @@
   gap: 2px;
 }
 
-/* 60 FPS GPU Composite & Smooth Hover with Sheen */
+/* Lightweight hover transitions; actual frame rate depends on the renderer. */
 #modal[data-kind="prices"] {
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
+  transform: none;
 }
 .prices-body {
-  will-change: scroll-position;
+  
 }
 .price-product {
   position: relative;
@@ -189,7 +187,7 @@
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.28s, box-shadow 0.28s;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
-  will-change: transform, box-shadow;
+  
 }
 .price-product:hover {
   transform: translateY(-6px) scale(1.02);
@@ -213,3 +211,5 @@
   left: 140%;
 }
 
+
+.game-card,.price-product{will-change:auto}.poster:hover{transform:translateY(-3px);box-shadow:0 8px 22px #0006}.poster:hover>img{filter:none}.poster:before,.price-product:before{display:none}.price-product:hover{transform:translateY(-3px);box-shadow:0 8px 22px #0006}@media(prefers-reduced-motion:reduce){.poster,.poster>img,.price-product{transition:none!important;transform:none!important}}

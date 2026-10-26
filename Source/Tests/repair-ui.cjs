@@ -1,0 +1,48 @@
+const {chromium}=require('playwright');
+const {pathToFileURL}=require('node:url');
+const path=require('node:path'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.ORBIT_CHROME_PATH||undefined});
+ try{
+  const page=await browser.newPage({viewport:{width:1360,height:900}}),errors=[];
+  page.on('pageerror',e=>errors.push(String(e)));
+  await page.route('https://**/*',r=>r.abort());
+  await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>window.sent.push(JSON.parse(s))};});
+  const url=pathToFileURL(path.resolve(__dirname,'../../engine/Extensions/Orbit/ui/index.html')).href;
+  await page.goto(url);
+  const last=k=>page.evaluate(k=>window.sent.filter(m=>m.kind===k).at(-1),k);
+  const receive=m=>page.evaluate(m=>window.Orbit.receive(m),m);
+  assert.ok(await last('ready'),'startup reaches ready');assert.deepEqual(errors,[]);
+  await receive({kind:'snapshot',data:{games:[{id:'11111111-1111-1111-1111-111111111111',name:'Fixture Game',store:'steam',installed:true}],prefs:{},stores:[],downloads:[]}});
+  await page.locator('[data-section="friends"]').click();
+  assert.equal(await page.locator('.friend-card').count(),0);
+  assert.match(await page.locator('#modal').textContent(),/пока не получает/);
+  await page.locator('[data-friends-open]').click();assert.equal((await last('friendsOpen')).url,'steam://open/friends');
+  const before=await page.evaluate(()=>sent.filter(m=>m.kind==='friendsOpen').length);
+  await page.locator('#friend-lobby-input').fill('https://example.invalid/');await page.locator('#friend-lobby-form button').click();
+  assert.equal(await page.evaluate(()=>sent.filter(m=>m.kind==='friendsOpen').length),before);
+  await page.locator('#friend-server-input').fill('999.0.0.1:27015');await page.locator('#friend-server-form button').click();
+  assert.equal(await page.evaluate(()=>sent.filter(m=>m.kind==='friendsOpen').length),before);
+  await page.locator('#friend-server-input').fill('127.0.0.1:27015');await page.locator('#friend-server-form button').click();assert.equal((await last('friendsOpen')).url,'steam://connect/127.0.0.1:27015');
+  await page.locator('#friend-lobby-input').fill('steam://joinlobby/730/123456789/76561198000000001');await page.locator('#friend-lobby-form button').click();assert.equal((await last('friendsOpen')).url,'steam://joinlobby/730/123456789/76561198000000001');
+  await receive({kind:'friendsResult',message:'Test host response'});assert.equal(await page.locator('#friends-result').textContent(),'Test host response');
+  await page.keyboard.press('Escape');await page.locator('[data-cmd="prices"]').click();
+  await receive({kind:'pricesSettings',settings:{accounts:{steam:{country:'KZ',currency:'KZT'}}}});
+  let request=await last('pricesDiscover');
+  await receive({kind:'pricesDiscovery',requestId:request.requestId,data:{store:'steam',country:'KZ',products:[]}});
+  assert.equal(await page.locator('.price-product').count(),0);assert.equal(await page.locator('.deal-flame-badge').count(),0);
+  await page.locator('[data-price="deals"]').click();request=await last('pricesDiscover');
+  const offer={source:'steam',amount:5000,originalAmount:5000,currency:'KZT',rub:900,kzt:5000,country:'KZ',checkedAt:'2026-10-26T20:00:00Z'};
+  await receive({kind:'pricesDiscovery',requestId:request.requestId,data:{store:'steam',country:'KZ',products:[{token:'no-discount',name:'No Discount',preview:offer},{token:'unknown',name:'Unknown Price'},{token:'sale',name:'Real Sale',preview:{...offer,amount:1000,originalAmount:5000,rub:180}}]}});
+  assert.equal(await page.locator('.price-product').count(),3);assert.equal(await page.locator('.deal-flame-badge').count(),1);assert.match(await page.locator('.deal-flame-badge').textContent(),/80/);
+  assert.match(await page.locator('[data-price-product="no-discount"]').textContent(),/≈.*900/);
+  assert.match(await page.locator('[data-price-product="unknown"]').textContent(),/Цена недоступна/);
+  await page.locator('[data-deal-filter="steep"]').click();assert.equal(await page.locator('.price-product').count(),1);
+  await page.locator('[data-store-tab="library"]').click();assert.match(await page.locator('.store-library-section').textContent(),/Fixture Game/);
+  await page.locator('[data-price-library]').click();assert.equal((await last('pricesCompare')).id,'11111111-1111-1111-1111-111111111111');
+  await page.keyboard.press('Escape');await page.locator('[data-section="minecraft"]').click();await page.locator('[data-cmd="settings"]').click();await page.locator('[data-cmd="support"]').click();assert.ok(await last('supportStatus'));
+  await page.goto(url+'?demo=1');await page.locator('[data-section="friends"]').click();await page.locator('[data-friends-open]').click();assert.equal(await last('friendsOpen'),undefined);
+  assert.deepEqual(errors,[]);assert.equal(await page.locator('#ui-health-notice').count(),0);
+  console.log('PASS repair UI');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1);});

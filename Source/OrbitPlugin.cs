@@ -99,7 +99,7 @@ namespace Orbit
             WindowChrome.SetWindowChrome(window, new WindowChrome { CaptionHeight = 0, ResizeBorderThickness = new Thickness(6), GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(12) });
             try { window.Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri(Path.Combine(folder, "orbit.ico"))); } catch { }
             var uiFile = Path.Combine(folder, "ui", "index.html");
-            browser = new ChromiumWebBrowser { Address = new Uri(uiFile).AbsoluteUri };
+            browser = new ChromiumWebBrowser { Address = new Uri(uiFile).AbsoluteUri, BrowserSettings = new BrowserSettings { WindowlessFrameRate = 60 } };
             browser.RequestHandler = new LocalUiRequestHandler(uiFile);
             browser.JavascriptMessageReceived += (s, e) =>
             {
@@ -255,6 +255,12 @@ namespace Orbit
                     foreach(var id in ((JArray)m["ids"]).Values<string>()) { var game=GetGame(id); game.Favorite=(bool)m["value"];PlayniteApi.Database.Games.Update(game); } Snapshot(true);break;
                 case "play":
                     var g=GetGame((string)m["id"]);if(!g.IsInstalled)throw new InvalidOperationException("Выбранная копия ещё не установлена.");if(g.IsRunning||g.IsLaunching){diagnosticLog?.Record("game.duplicate.ignored");break;}diagnosticLog?.Record("game.requested");PlayniteApi.StartGame(g.Id);break;
+                case "friendsOpen":
+                    var steamUrl=(string)m["url"];
+                    if(!ValidFriendsUrl(steamUrl))throw new InvalidOperationException("Неверная ссылка Steam.");
+                    try { backgroundClients?.Allow("steam");Process.Start(new ProcessStartInfo(steamUrl){UseShellExecute=true});Send(new{kind="friendsResult",message="Запрос передан Steam. Подключение и доступ к игре проверяет Steam."}); }
+                    catch { Send(new{kind="friendsResult",message="Не удалось открыть Steam. Проверь, установлен ли клиент."}); }
+                    break;
                 case "connect": Connect((string)m["store"]);break;
                 case "client": OpenClient((string)m["store"]);break;
                 case "advanced": ShowEngine(); break;
@@ -270,6 +276,15 @@ namespace Orbit
                 case "cancelInstall": CancelInstall((string)m["id"]);break;
                 case "dismissJob": jobs.RemoveAll(j=>j.id==(string)m["id"]&&j.state=="complete");SaveJobs();Snapshot(true);break;
             }
+        }
+        internal static bool ValidFriendsUrl(string url)
+        {
+            if(url=="steam://open/friends")return true;
+            if(url==null||url.Length>200)return false;
+            if(System.Text.RegularExpressions.Regex.IsMatch(url,@"\Asteam://joinlobby/[1-9]\d{0,9}/[1-9]\d{0,19}/[1-9]\d{0,19}\z"))return true;
+            var match=System.Text.RegularExpressions.Regex.Match(url,@"\Asteam://connect/(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})\z");
+            int port;
+            return match.Success&&match.Groups[1].Value.Split('.').All(x=>int.Parse(x)<=255)&&int.TryParse(match.Groups[2].Value,out port)&&port>=1&&port<=65535;
         }
         void Connect(string store)
         {

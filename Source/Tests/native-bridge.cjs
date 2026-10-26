@@ -34,7 +34,7 @@ const root=path.resolve(__dirname,'../..');
   await receive({kind:'folder',path:'D:\\Custom\\Bridge Game',free:200*1024**3});
   await page.locator('[data-cmd="install"]').click();assert.deepEqual(await last('install'),{kind:'install',id:e,path:'D:\\Custom\\Bridge Game'});
   await receive({kind:'installStarted'});assert.match(await page.locator('#downloads-title').textContent(),/Загрузки/);
-  await page.keyboard.press('Escape');await page.locator('.nav-item[data-cmd="accounts"]').click();await page.locator('[data-connect="steam"]').click();assert.equal((await last('connect')).store,'steam');
+  await page.keyboard.press('Escape');await page.locator('.nav-item[data-cmd="accounts"]:not(.nav-add-store)').click();await page.locator('[data-connect="steam"]').click();assert.equal((await last('connect')).store,'steam');
   await page.locator('#refresh').click();assert.equal((await last('sync')).kind,'sync');await receive({kind:'syncDone'});assert.equal(await page.locator('#refresh').evaluate(el=>el.classList.contains('syncing')),false);
   await page.reload();data.prefs=saved;await receive({kind:'snapshot',data});await page.locator('[data-section="all"]').click();assert.match(await game.locator('.store-button').textContent(),/Epic Games/);
   assert.deepEqual(errors,[]);

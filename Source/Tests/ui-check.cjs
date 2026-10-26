@@ -31,7 +31,7 @@ const assert=require('node:assert/strict');
  assert.match(await page.locator('#modal .primary').textContent(),/Установить/);
  await page.locator('#modal .primary').click();assert.equal(await page.locator('#install-path').inputValue(),'D:\\Games\\Hogwarts Legacy');
  await page.screenshot({path:'qa/Orbit-install.png'});
- await page.keyboard.press('Escape');await page.locator('.nav-item[data-cmd="accounts"]').click();assert.equal(await page.locator('.account').count(),6);await page.screenshot({path:'qa/Orbit-accounts.png'});await page.keyboard.press('Escape');
+ await page.keyboard.press('Escape');await page.locator('.nav-item[data-cmd="accounts"]:not(.nav-add-store)').click();assert.equal(await page.locator('.account').count(),6);await page.screenshot({path:'qa/Orbit-accounts.png'});await page.keyboard.press('Escape');
  await page.locator('[data-cmd="settings"]').click();await page.locator('[data-cmd="motion"]').click();assert.equal(await page.locator('html').evaluate(el=>el.classList.contains('motion-off')),true);await page.keyboard.press('Escape');
  await page.locator('[data-section="favorite"]').click();assert.equal(await page.locator('.game-card').count(),3);
  await page.locator('[data-cmd="leaveDemo"]').click();assert.equal(await page.locator('#welcome').isVisible(),true);assert.equal(await page.locator('.game-card').count(),0);await page.screenshot({path:'qa/Orbit-welcome.png'});

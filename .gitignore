@@ -23,6 +23,7 @@ engine/Extensions/*
 # Build & Dependency caches
 bin/
 obj/
+qa/
 __pycache__/
 node_modules/
 .vs/

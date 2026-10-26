@@ -80,7 +80,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
   const dock=await demo.locator('.download-dock-button').boundingBox();assert.ok(dock.y+dock.height<=640&&dock.x+dock.width<=880);
   await demo.locator('#dl-client').click();assert.equal(await demo.evaluate(()=>sent.length),0,'Demo must not call native store');
   await demo.locator('.download-dock-button').click();await demo.locator('#download-view').waitFor({state:'hidden'});
-  await demo.locator('.nav-item[data-cmd="accounts"]').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-accounts-small.png')});
+  await demo.locator('.nav-item[data-cmd="accounts"]:not(.nav-add-store)').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-accounts-small.png')});
   const close=await demo.locator('.modal-close').boundingBox();assert.ok(close.x+close.width<=880&&close.y>=0);
   await demo.locator('.modal-close').click();await demo.locator('#modal-backdrop').waitFor({state:'hidden'});
   await demo.locator('[data-cmd="settings"]').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-settings-small.png')});
