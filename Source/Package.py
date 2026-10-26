@@ -8,7 +8,7 @@ import zipfile
 APP = Path(__file__).resolve().parent.parent
 DEST = APP.parent
 OFFICIAL_RUNTIME = {"engine/" + row.split("  ", 1)[1] for row in (APP / "Notices/playnite-runtime.sha256").read_text().splitlines()}
-OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache"}
+OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache", "Backup"}
 
 def sha(path):
     h = hashlib.sha256()

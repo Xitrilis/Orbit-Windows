@@ -16,7 +16,7 @@ $rows = New-Object 'System.Collections.Generic.List[string]'
 $paths = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'engine') -Recurse -File) + @(Get-Item -LiteralPath (Join-Path $projectRoot 'Orbit.exe.config')) + @(Get-Item -LiteralPath (Join-Path $projectRoot 'orbit.ico'))
 foreach ($item in $paths) {
     $relative = $item.FullName.Substring($projectRoot.Length + 1).Replace('\', '/')
-    if (-not $officialPaths.ContainsKey($relative) -and ($relative -match '(?i)(^|/)(OrbitData|ExtensionsData|library|cache|logs|webcache|obj|bin)(/|$)' -or $item.Name.StartsWith('.') -or $item.Extension -in @('.pdb', '.log', '.tmp', '.zip') -or $item.Name.StartsWith('Orbit-report-', [StringComparison]::OrdinalIgnoreCase) -or $item.Name -like '*.partial-*' -or $relative -eq 'engine/config.json' -or $relative -eq 'engine/safeStartup.flag')) { continue }
+    if (-not $officialPaths.ContainsKey($relative) -and ($relative -match '(?i)(^|/)(OrbitData|ExtensionsData|library|cache|logs|webcache|browsercache|Backup|obj|bin)(/|$)' -or $item.Name.StartsWith('.') -or $item.Extension -in @('.pdb', '.log', '.tmp', '.zip') -or $item.Name.StartsWith('Orbit-report-', [StringComparison]::OrdinalIgnoreCase) -or $item.Name -like '*.partial-*' -or $relative -eq 'engine/config.json' -or $relative -eq 'engine/safeStartup.flag')) { continue }
     $rows.Add(((Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()) + "`t" + $item.Length + "`t" + $relative)
 }
 $sorted = @($rows | Sort-Object)
