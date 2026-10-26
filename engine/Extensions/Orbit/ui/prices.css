@@ -30,3 +30,186 @@
 .store-lib-card strong{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .store-lib-card small{display:flex;align-items:center;gap:6px;font-size:11px;color:#80949d;margin-top:4px}
 .store-lib-action{font-size:11px;color:#a5e4d1;font-weight:500;padding:6px 10px;background:#a5e4d10d;border:1px solid #a5e4d122;border-radius:6px;white-space:nowrap}
+
+/* Deals Filter and Badges */
+.deal-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 20px;
+}
+.deal-filter-btn {
+  background: #171d25;
+  border: 1px solid #ffffff12;
+  color: #8fa2ad;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all .2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  will-change: transform;
+}
+.deal-filter-btn:hover {
+  background: #202834;
+  color: #edf2f4;
+  border-color: #ffffff25;
+}
+.deal-filter-btn.active {
+  background: linear-gradient(135deg, rgba(255, 36, 83, 0.22), rgba(255, 98, 41, 0.22));
+  border-color: #ff6229;
+  color: #ffb199;
+  font-weight: 600;
+  box-shadow: 0 0 14px rgba(255, 98, 41, 0.25);
+}
+
+/* Neon Flame Discount Badge & Prices */
+.deal-pricing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+.deal-flame-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #ff1744 0%, #ff5252 50%, #ff9100 100%);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: -0.2px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(255, 30, 70, 0.42), inset 0 1px 0 rgba(255,255,255,0.3);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  white-space: nowrap;
+}
+.deal-price-col {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.deal-old {
+  font-size: 11px;
+  color: #8395a0;
+  text-decoration: line-through;
+  font-weight: 500;
+}
+.deal-new {
+  font-size: 16px;
+  font-weight: 750;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.22);
+}
+
+/* Multi-Store Comparison Chips */
+.deal-store-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.store-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  padding: 5px 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+  color: #a4b6bf;
+  transition: background 0.2s, border-color 0.2s;
+}
+.store-chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.store-chip.best {
+  background: rgba(255, 60, 40, 0.12);
+  border-color: rgba(255, 60, 40, 0.38);
+  color: #ffd8d0;
+}
+.store-chip-icon {
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.store-chip-icon.steam { background: #1c3d5a; color: #a5d3f8; }
+.store-chip-icon.epic { background: #2b2e34; color: #ffffff; }
+.store-chip-icon.gog { background: #3d2347; color: #e7c2f1; }
+.store-chip-icon.plati { background: #273b28; color: #b7e89e; }
+.store-chip-icon.funpay { background: #1a323c; color: #9cd4ed; }
+.store-chip-icon.ea { background: #3b2228; color: #ffb8c7; }
+.store-chip-icon.ubisoft { background: #222949; color: #c4d1ff; }
+.store-chip-name {
+  font-weight: 500;
+}
+.store-chip-val {
+  font-weight: 700;
+  color: #e5f1ee;
+}
+.store-chip-badge {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 750;
+  color: #ff5252;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 60 FPS GPU Composite & Smooth Hover with Sheen */
+#modal[data-kind="prices"] {
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+.prices-body {
+  will-change: scroll-position;
+}
+.price-product {
+  position: relative;
+  background: #191e25;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.28s, box-shadow 0.28s;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  will-change: transform, box-shadow;
+}
+.price-product:hover {
+  transform: translateY(-6px) scale(1.02);
+  border-color: rgba(165, 228, 209, 0.55);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.65), 0 0 24px rgba(165, 228, 209, 0.16);
+}
+.price-product::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+  z-index: 4;
+}
+.price-product:hover::before {
+  left: 140%;
+}
+
