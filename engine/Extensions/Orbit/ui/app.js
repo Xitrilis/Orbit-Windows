@@ -25,14 +25,97 @@
  paths.clock='<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';
  paths.home='<path d="m3 10 9-7 9 7v11h-7v-7h-4v7H3Z"/>';
  paths.edit='<path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z"/>';
+ const OrbitCovers={
+  cache:{},inFlight:new Set(),
+  init(){try{this.cache=JSON.parse(localStorage.getItem('orbit_auto_covers')||'{}');}catch{}},
+  has(id){return !!this.cache[id];},
+  get(id){return this.cache[id];},
+  async findFor(g){
+   if(!g||g.cover||this.cache[g.id]||this.inFlight.has(g.id))return;
+   this.inFlight.add(g.id);
+   const cleanName=(g.name||'').replace(/[™®©\[\]\(\)]/g,' ').replace(/\s+/g,' ').trim();
+   if(!cleanName)return;
+   try{
+    const sUrl='https://store.steampowered.com/api/storesearch/?term='+encodeURIComponent(cleanName)+'&l=russian&cc=US';
+    const sRes=await fetch(sUrl).then(r=>r.json()).catch(()=>null);
+    if(sRes&&sRes.items&&sRes.items.length){
+     const id=sRes.items[0].id;
+     const coverUrl='https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/'+id+'/library_600x900_2x.jpg';
+     if(await this.test(coverUrl)){this.save(g,coverUrl);return;}
+    }
+    const gUrl='https://catalog.gog.com/v1/catalog?limit=3&locale=en-US&order=desc:bestselling&query='+encodeURIComponent(cleanName);
+    const gRes=await fetch(gUrl).then(r=>r.json()).catch(()=>null);
+    if(gRes&&gRes.products&&gRes.products.length){
+     const vert=gRes.products[0].coverVertical;
+     if(vert&&await this.test(vert)){this.save(g,vert);return;}
+    }
+   }catch(e){}finally{this.inFlight.delete(g.id);}
+  },
+  test(url){
+   return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>resolve(true);
+    img.onerror=()=>resolve(false);
+    img.src=url;
+    setTimeout(()=>resolve(false),4500);
+   });
+  },
+  save(g,url){
+   this.cache[g.id]=url;
+   try{localStorage.setItem('orbit_auto_covers',JSON.stringify(this.cache));}catch{}
+   g.cover=url;
+   if(window.data&&window.data.games){
+    window.data.games.filter(x=>x.id===g.id||(g.copies&&g.copies.some(c=>c.id===x.id))).forEach(x=>{x.cover=url;});
+   }
+   const card=document.querySelector(`[data-open="${esc(g.key)}"]`);
+   if(card){
+    card.classList.remove('no-art');
+    let img=card.querySelector('img');
+    if(!img){
+     img=document.createElement('img');
+     img.loading='lazy';
+     img.alt='';
+     card.appendChild(img);
+    }
+    img.src=url;
+    img.hidden=false;
+   }
+  }
+ };
+ OrbitCovers.init();
+ function posterFallback(g){
+  let hash=0;const name=g.name||'';
+  for(let i=0;i<name.length;i++)hash=((hash<<5)-hash)+name.charCodeAt(i);
+  const hue=Math.abs(hash)%360;
+  const storeLabel=(g.selected&&store(g.selected.store)?.name)||'ORBIT';
+  return `<div class="poster-styled-fallback" style="--art-hue:${hue}">
+    <div class="fallback-glow"></div>
+    <div class="fallback-top"><span class="fallback-badge">${esc(storeLabel)}</span><span class="fallback-dot"></span></div>
+    <div class="fallback-center"><div class="fallback-crest">${icon('play')}</div></div>
+    <div class="fallback-bottom"><strong class="fallback-title">${esc(g.name)}</strong><span class="fallback-edition">ORBIT GAME</span></div>
+  </div>`;
+ }
  const crop=(g,slot)=>C.cropStyle(g.artwork?.[slot]);
  function picker(g){return `<button class="store-button" data-pick="${esc(g.key)}" aria-label="Выбрать магазин для ${esc(g.name)}">${dot(g.selected.store)}${esc(store(g.selected.store).name)}${icon('chevron')}</button>`;}
  function action(g,cls='primary'){const a=C.action(g.selected);return `<button class="${cls}" data-action="${esc(g.key)}" ${a.disabled?'disabled':''}>${cls==='primary'?icon(g.selected.installed?'play':'download'):''}${a.text}</button>`;}
  function render(){
   OrbitDownloads.update(data.downloads||[],demo);
-  groups=C.groupGames(data.games,data.prefs);document.documentElement.classList.toggle('motion-off',!!data.prefs.reducedMotion);$('#demo-banner').hidden=!demo;$('#notifications').hidden=!(data.notifications||[]).length;$('#notifications').innerHTML=(data.notifications||[]).map(n=>'<p>'+esc(n)+'</p>').join('')+'<button data-cmd="accounts">Проверить подключения</button>';
+  groups=C.groupGames(data.games,data.prefs);document.documentElement.classList.toggle('motion-off',!!data.prefs.reducedMotion);$('#demo-banner').hidden=!demo;const dismissedNotifs=(()=>{try{return new Set(JSON.parse(localStorage.getItem('orbit_dismissed_notifs')||'[]'));}catch{return new Set();}})();
+   const activeNotifs=(data.notifications||[]).filter(n=>!dismissedNotifs.has(n));
+   $('#notifications').hidden=!activeNotifs.length;
+   if(activeNotifs.length){
+    $('#notifications').innerHTML=activeNotifs.map(n=>'<p>'+esc(n)+'</p>').join('')+
+     '<div class="notif-actions"><button data-cmd="accounts">Проверить подключения</button><button class="notif-dismiss" data-cmd="dismissNotif" aria-label="Закрыть уведомление" title="Закрыть">'+icon('x')+'</button></div>';
+   }
   patchHtml($('#main-nav'),[['home','home','Главная',''],['all','library','Все игры',groups.length],['activity','clock','Недавние',''],['queue','bookmark','Поиграть позже',''],['minecraft','cube','Minecraft',''],['installed','monitor','Установленные',groups.filter(g=>g.installed).length],['favorite','star','Избранное',groups.filter(g=>g.favorite).length]].map(([id,ic,title,count])=>`<button class="nav-item ${section===id&&!selectedStore?'active':''}" data-section="${id}">${icon(ic)}<span>${title}</span><span class="nav-count">${count}</span></button>`).join('')+`<div class="sidebar-services"><button class="nav-item" data-cmd="prices">${icon('search')}<span>Магазин</span><span class="nav-count">₽ ₸</span></button><button class="nav-item" data-cmd="wallet">${icon('drive')}<span>Пополнить Steam</span><span class="nav-count">↗</span></button></div>`);
-  patchHtml($('#store-nav'),C.stores.map(s=>`<button class="nav-item ${selectedStore===s.id?'active':''}" data-store="${s.id}">${dot(s.id)}<span>${s.name}</span><span class="nav-count">${groups.filter(g=>g.copies.some(c=>c.store===s.id)).length||'—'}</span></button>`).join(''));
+  const connectedStores=C.stores.filter(s=>groups.some(g=>g.copies.some(c=>c.store===s.id)));
+   const visibleStores=connectedStores.length?connectedStores:C.stores.slice(0,1);
+   const storeRows=visibleStores.map(s=>{
+    const count=groups.filter(g=>g.copies.some(c=>c.store===s.id)).length;
+    return `<button class="nav-item ${selectedStore===s.id?'active':''}" data-store="${s.id}">${dot(s.id)}<span>${s.name}</span><span class="nav-count">${count}</span></button>`;
+   }).join('');
+   const addStoreBtn=`<button class="nav-item nav-add-store" data-cmd="accounts" title="Подключить новый магазин">${icon('link')}<span>Подключить магазин</span></button>`;
+   patchHtml($('#store-nav'),storeRows+addStoreBtn);
   $('#page-title').innerHTML=esc(selectedStore?store(selectedStore).name:section==='home'?'Главная':section==='activity'?'Недавние игры':section==='queue'?'Поиграть позже':section==='minecraft'?'Minecraft':section==='installed'?'На этом ПК':section==='favorite'?'Избранное':'Все игры')+'<span>.</span>';
   const genre=$('#genre').value;const genres=[...new Set(groups.flatMap(g=>g.genres))].sort((a,b)=>a.localeCompare(b));$('#genre').innerHTML='<option value="">Все жанры</option>'+genres.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');$('#genre').value=genres.includes(genre)?genre:'';
   visible=C.filterGames(groups,{search:$('#search').value,store:selectedStore,installed:section==='installed'||filter==='installed',favorite:section==='favorite'||filter==='favorite',genre:$('#genre').value,sort:$('#sort').value});
@@ -45,8 +128,14 @@
   renderGames();$('main').classList.toggle('is-home',section==='home');$('#home-view').hidden=section!=='home';OrbitHome.update();$('main').classList.toggle('is-activity',section==='activity');$('#activity-view').hidden=section!=='activity';OrbitActivity.update(data,groups);$('main').classList.toggle('is-queue',section==='queue');$('#queue-view').hidden=section!=='queue';OrbitJournal.update(data,groups);$('main').classList.toggle('is-minecraft',section==='minecraft');$('#minecraft-view').hidden=section!=='minecraft';OrbitMinecraft.update();renderClientStatus();
  }
  function renderGames(){const list=visible.slice(0,page*72);$('#games').className=view==='grid'?'game-grid':'game-list';patchHtml($('#games'),list.map((g,i)=>view==='grid'?card(g,i):row(g,i)).join(''));$('#empty').hidden=!!visible.length;$('#more').hidden=list.length>=visible.length;$$('#games img').forEach(img=>img.onerror=()=>{img.hidden=true;img.parentElement.classList.add('no-art');});}
- function card(g,i){return `<article class="game-card" style="animation-delay:${Math.min(i,9)*18}ms"><button class="poster ${g.cover?'':'no-art'}" data-open="${esc(g.key)}" aria-label="Открыть ${esc(g.name)}"><span class="poster-fallback">${esc(g.name.split(' ').slice(0,2).map(x=>x[0]).join(''))}</span>${g.cover?`<img src="${esc(g.cover)}" style="${crop(g,'cover')}" loading="lazy" alt="">`:''}${g.installed?'<span class="status"><i></i>НА ПК</span>':''}${g.copies.length>1?`<span class="copies">${g.copies.length} магазина</span>`:''}</button><button class="favorite ${g.favorite?'on':''}" data-favorite="${esc(g.key)}" aria-label="Избранное: ${esc(g.name)}" aria-pressed="${g.favorite}">${icon('star')}</button><div class="game-name-line">${g.icon?`<span class="game-custom-icon"><img src="${esc(g.icon)}" style="${crop(g,'icon')}" alt=""></span>`:''}<button class="game-title" data-open="${esc(g.key)}" title="${esc(g.name)}">${esc(g.name)}</button></div>${picker(g)}</article>`;}
- function row(g,i){return `<article class="game-row" style="animation-delay:${Math.min(i,7)*16}ms">${g.icon||g.cover?`<span class="row-art-frame ${g.icon?'is-icon':''}"><img src="${esc(g.icon||g.cover)}" style="${crop(g,g.icon?'icon':'cover')}" loading="lazy" alt=""></span>`:'<b class="row-placeholder">o.</b>'}<div class="row-title"><button class="game-title" data-open="${esc(g.key)}">${esc(g.name)}</button>${picker(g)}</div><span class="row-time">${C.hours(g.playtime)}</span><span class="row-status">${g.selected.installed?'На этом ПК':'В библиотеке'}</span><button class="favorite inline ${g.favorite?'on':''}" data-favorite="${esc(g.key)}" aria-label="Избранное: ${esc(g.name)}">${icon('star')}</button>${action(g,'row-action')}</article>`;}
+ function card(g,i){
+   if(!g.cover&&OrbitCovers.has(g.id))g.cover=OrbitCovers.get(g.id);
+   if(!g.cover)OrbitCovers.findFor(g);
+   return `<article class="game-card" style="animation-delay:${Math.min(i,9)*18}ms"><button class="poster ${g.cover?'':'no-art'}" data-open="${esc(g.key)}" aria-label="Открыть ${esc(g.name)}"><span class="poster-fallback">${posterFallback(g)}</span>${g.cover?`<img src="${esc(g.cover)}" style="${crop(g,'cover')}" loading="lazy" alt="">`:''}${g.installed?'<span class="status"><i></i>НА ПК</span>':''}${g.copies.length>1?`<span class="copies">${g.copies.length} магазина</span>`:''}</button><button class="favorite ${g.favorite?'on':''}" data-favorite="${esc(g.key)}" aria-label="Избранное: ${esc(g.name)}" aria-pressed="${g.favorite}">${icon('star')}</button><div class="game-name-line">${g.icon?`<span class="game-custom-icon"><img src="${esc(g.icon)}" style="${crop(g,'icon')}" alt=""></span>`:''}<button class="game-title" data-open="${esc(g.key)}" title="${esc(g.name)}">${esc(g.name)}</button></div>${picker(g)}</article>`;}
+ function row(g,i){
+   if(!g.cover&&OrbitCovers.has(g.id))g.cover=OrbitCovers.get(g.id);
+   if(!g.cover)OrbitCovers.findFor(g);
+   return `<article class="game-row" style="animation-delay:${Math.min(i,7)*16}ms">${g.icon||g.cover?`<span class="row-art-frame ${g.icon?'is-icon':''}"><img src="${esc(g.icon||g.cover)}" style="${crop(g,g.icon?'icon':'cover')}" loading="lazy" alt=""></span>`:'<b class="row-placeholder">o.</b>'}<div class="row-title"><button class="game-title" data-open="${esc(g.key)}">${esc(g.name)}</button>${picker(g)}</div><span class="row-time">${C.hours(g.playtime)}</span><span class="row-status">${g.selected.installed?'На этом ПК':'В библиотеке'}</span><button class="favorite inline ${g.favorite?'on':''}" data-favorite="${esc(g.key)}" aria-label="Избранное: ${esc(g.name)}">${icon('star')}</button>${action(g,'row-action')}</article>`;}
  function openPicker(k,button){const g=byKey(k);if(!g)return;const p=$('#popover');p.innerHTML='<p class="popover-label">ЗАПУСКАТЬ ЧЕРЕЗ</p>'+g.copies.map(c=>`<button class="store-option ${g.selected.id===c.id?'selected':''}" data-copy="${esc(c.id)}" data-group="${esc(k)}">${dot(c.store)}<div><strong>${esc(store(c.store).name)}</strong><small>${c.installed?'Уже установлена':'Потребуется установка'}</small></div>${g.selected.id===c.id?icon('check'):''}</button>`).join('')+'<p class="popover-note">Выбор сохранится для этой игры. По умолчанию приоритет у Steam.</p>';p.hidden=false;const r=button.getBoundingClientRect();p.style.left=Math.max(8,Math.min(r.left,innerWidth-267))+'px';p.style.top=Math.max(8,Math.min(r.bottom+7,innerHeight-p.offsetHeight-12))+'px';p.querySelector('button')?.focus();}
  function modal(kind,html,keep=false){
   const panel=$('#modal'),backdrop=$('#modal-backdrop'),fresh=backdrop.hidden,field=keep?document.activeElement:null,fieldId=field?.id,selection=field&&typeof field.selectionStart==='number'?[field.selectionStart,field.selectionEnd]:null;
@@ -85,6 +174,7 @@
   const b=e.target.closest('button');if(!e.target.closest('#popover')&&!e.target.closest('[data-pick]'))$('#popover').hidden=true;if(!b)return;
   const d=b.dataset;
   if(d.section){OrbitDownloads.hide(false);section=d.section;selectedStore='';filter='all';page=1;render();}else if(d.store){OrbitDownloads.hide(false);selectedStore=d.store;section='all';filter='all';page=1;render();}else if(d.filter){filter=d.filter;page=1;render();}else if(d.view){view=d.view;pref({view});}else if(d.open)details(d.open);else if(d.pick)openPicker(d.pick,b);else if(d.action)run(d.action);else if(d.favorite){const g=byKey(d.favorite);if(g)send('favorite',{ids:g.copies.map(c=>c.id),value:!g.favorite});}else if(d.copy){pref({preferred:{...(data.prefs.preferred||{}),[d.group]:d.copy}});$('#popover').hidden=true;if(modalKind==='detail')details(d.group);}else if(d.customize){OrbitArtwork.show(byKey(d.customize));}else if(d.prices){const g=byKey(d.prices);if(g)OrbitPrices.showGame(g.selected,g.copies);}else if(d.askGame){send('assistant',{id:d.askGame});}else if(d.checkGame){send('diagnostics',{id:d.checkGame});}else if(d.connect){if(!demo)closeModal();send('connect',{store:d.connect});}else if(d.path){$('#install-path').value=/^[a-z]:\\$/i.test(d.path)?d.path+'Games\\'+installGame.name.replace(/[<>:\"/\\|?*]/g,'_'):d.path;const l=[...(options?.libraries||[]),...(options?.drives||[])].find(x=>x.path===d.path);$('#path-space').textContent=l?'Свободно '+gb(l.free):'';}else if(d.client)send('client',{store:d.client});else if(d.cancel)send('cancelInstall',{id:d.cancel});else switch(d.cmd){
+   case'dismissNotif':(data.notifications||[]).forEach(n=>dismissedNotifs.add(n));try{localStorage.setItem('orbit_dismissed_notifs',JSON.stringify([...dismissedNotifs]));}catch{}$('#notifications').hidden=true;break;
    case'support':OrbitSupport.show();break;case'activity':closeModal(true);OrbitDownloads.hide(false);section='activity';selectedStore='';render();break;case'backgroundClients':pref({backgroundClients:data.prefs.backgroundClients===false});settings();break;case'showClients':case'hideClients':send(d.cmd);break;case'wallet':OrbitWallet.show();break;case'prices':OrbitPrices.show(selectedStore||'steam');break;case'priceSettings':OrbitPrices.showSettings();break;case'assistant':send('assistant');break;case'assistantSettings':send('assistantSettings');break;case'accounts':accounts();break;case'settings':settings();break;case'downloads':downloads();break;case'closeModal':closeModal();break;case'sync':sync();break;case'syncClose':closeModal();sync();break;
    case'random':OrbitJournal.random();break;
    case'reset':section='all';selectedStore='';filter='all';$('#search').value='';$('#genre').value='';page=1;render();break;case'more':page++;renderGames();break;

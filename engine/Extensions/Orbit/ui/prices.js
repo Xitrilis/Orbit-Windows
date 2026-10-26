@@ -4,8 +4,8 @@
  const names={steam:'Steam',epic:'Epic Games',gog:'GOG',ea:'EA app',ubisoft:'Ubisoft Connect',battlenet:'Battle.net',funpay:'FunPay',plati:'Plati.Market'};
  const marks={steam:'S',epic:'E',gog:'gog',ea:'EA',ubisoft:'U',battlenet:'B',funpay:'F',plati:'P'};
  const countries={RU:'Россия',KZ:'Казахстан',BY:'Беларусь',UA:'Украина',TR:'Турция',US:'США',DE:'Германия',PL:'Польша',GB:'Великобритания',GE:'Грузия',AM:'Армения'};
- let api,config={accounts:{},funpaySections:{}},page='search',source='steam',query='',selected=null,copies=[],results=null,comparison=null,busy=false,error='',activeMarket='funpay',request=0,expected='',settingsBack='search',pendingSettings=false,lastPage='',settingsDraft=null,discovery=null;
- const account=()=>config.accounts?.[selected?.store||source]||{},country=c=>countries[c]||c||'Регион не выбран';
+ let api,config={accounts:{},funpaySections:{}},page='search',source='steam',query='',selected=null,storeTab='deals',copies=[],results=null,comparison=null,busy=false,error='',activeMarket='funpay',request=0,expected='',settingsBack='search',pendingSettings=false,lastPage='',settingsDraft=null,discovery=null;
+ const account=()=>{const a=config.accounts?.[selected?.store||source];if(a&&a.country)return a;return{country:'RU',currency:'RUB'};},country=c=>countries[c]||c||'Регион не выбран';
  const money=(v,c)=>v==null?'—':new Intl.NumberFormat('ru-RU',{style:'currency',currency:c,currencyDisplay:'narrowSymbol',minimumFractionDigits:0,maximumFractionDigits:2}).format(v);
  const when=t=>t?new Date(t).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
  const mark=s=>`<b class="price-mark ${esc(s)}">${esc(marks[s]||s)}</b>`;
@@ -21,14 +21,71 @@
  function loading(){return '<div class="price-loading" role="status"><span class="price-spinner"></span><strong>Проверяем источники</strong><p>Получаем цены, условия предложений и курс валют.</p><button class="quiet" data-price="cancel">Остановить</button></div>';}
  function pair(o,small=false){return `<div class="price-pair ${small?'small':''}"><div><span>${o.currency==='RUB'?'ЦЕНА В РУБЛЯХ':'ПЕРЕСЧЁТ В РУБЛИ'}</span><strong>${o.rub!=null&&o.currency!=='RUB'?'≈ ':''}${money(o.rub,'RUB')}</strong></div><div><span>${o.currency==='KZT'?'ЦЕНА В ТЕНГЕ':'ПЕРЕСЧЁТ В ТЕНГЕ'}</span><strong>${o.kzt!=null&&o.currency!=='KZT'?'≈ ':''}${money(o.kzt,'KZT')}</strong></div></div>`;}
  function original(o){if(o.free)return 'Бесплатно';return `${o.from?'От ':''}${o.currency?money(o.amount,o.currency):'—'}${o.originalAmount>o.amount?` <del>${money(o.originalAmount,o.currency)}</del>`:''}`;}
- function searchPane(){const a=config.accounts?.[source]||{};return `
-  <div class="price-discover"><p class="eyebrow">ORBIT / STORE</p><h2 id="modal-title">Новая игра.<br><span>Осознанный выбор.</span></h2><p>Магазин и площадки рядом.<br>Исходная цена, рубли и тенге — в одной карточке.</p><div class="price-orbit" aria-hidden="true"><i></i><b>₽</b><em>₸</em></div></div>
-  <div class="price-controls"><div class="price-region"><span class="price-live-dot"></span>${esc(country(a.country))}${a.currency?' · '+esc(a.currency):' · валюта магазина'}</div><button class="quiet" data-price="settings">Регионы и валюты ⚙</button></div>
-  <form id="price-search-form" class="price-search"><select id="price-store" aria-label="Магазин для поиска">${Object.keys(names).slice(0,6).map(s=>`<option value="${s}" ${s===source?'selected':''}>${names[s]}</option>`).join('')}</select><input id="price-query" aria-label="Поиск в магазине" placeholder="Название игры, например Cyberpunk 2077" maxlength="150" value="${esc(query)}" autocomplete="off"><button class="primary" ${busy?'disabled':''}>Найти игру</button></form>
-  ${api.demo()?'<p class="price-notice">Демонстрация интерфейса. Реальные цены запрашиваются в Orbit.exe; вымышленные цены здесь не показываются.</p>':''}
-  ${!a.country?'<div class="price-setup"><div><strong>Укажи страну аккаунта</strong><p>Так Orbit запросит нужную региональную цену. Местоположение компьютера её не определяет.</p></div><button class="secondary" data-price="settings">Выбрать регион</button></div>':''}
-  ${error?`<p class="price-error" role="alert">${esc(error)}</p>`:''}<div class="sale-discover-nav"><button class="quiet" data-price="deals" ${busy?'disabled':''}>Скидки и события ↗</button></div>${busy?loading():results?`<div class="price-results-heading"><h3>Найдено ${results.products?.length||0}</h3><span>${esc(names[source])} · ${esc(country(results.country))}</span></div><p class="note">${esc(results.message)}</p><div class="price-search-results">${(results.products||[]).map(p=>`<button class="price-product" data-price-product="${esc(p.token)}">${p.image&&/^https:\/\//i.test(p.image)?`<img src="${esc(p.image)}" alt="" loading="lazy">`:'<div class="price-cover-fallback">'+mark(source)+'</div>'}<div><small>${esc(p.productType||'Игра')}</small><h3>${esc(p.name)}</h3><p class="price-product-native">${p.preview?original(p.preview):'Цена недоступна'}</p>${p.preview?pair(p.preview,true):''}<span class="price-product-action">Сравнить предложения <b>→</b></span></div></button>`).join('')}</div>${results.fxError?`<p class="note">${esc(results.fxError)}</p>`:''}${results.fxDate?`<p class="note">Пересчёт ≈ по курсу ЦБ на ${esc(results.fxDate)}. Это не курс оплаты.</p>`:''}${external(results.url,'Открыть каталог магазина')}`:discovery?discoveryPane():`<div class="price-empty"><span>↗</span><h3>Выбери следующую историю</h3><p>Поиск Steam, Epic Games и GOG. Для EA, Ubisoft и Battle.net пока доступен переход в соответствующий магазин.</p><div><span>Steam</span><span>Epic Games</span><span>GOG</span><i>+</i><span>FunPay</span><span>Plati.Market</span></div></div>`}`;}
- function discoveryPane(){return `${OrbitSales.calendar(discovery)}<section class="sale-featured"><div class="price-results-heading"><h3>${discovery.store==='steam'?'Сейчас на витрине Steam':'Акции выбранного магазина'}</h3><button class="quiet" data-price="deals">↻ Обновить</button></div><p class="note">${esc(discovery.message)}</p><div class="price-search-results">${(discovery.products||[]).map(p=>`<button class="price-product" data-price-product="${esc(p.token)}">${p.image&&/^https:\/\//.test(p.image)?`<img src="${esc(p.image)}" alt="" loading="lazy">`:''}<div><small>${esc(p.productType)}</small><h3>${esc(p.name)}</h3><p class="price-product-native"><b class="sale-discount">−${OrbitSales.pct(p.preview)}%</b> ${original(p.preview)}</p>${pair(p.preview,true)}<span class="price-product-action">Цены и ближайшие акции <b>→</b></span></div></button>`).join('')}</div>${discovery.fxDate?`<p class="note">Пересчёт ≈ по курсу ЦБ на ${esc(discovery.fxDate)}.</p>`:''}${discovery.fxError?`<p class="note">${esc(discovery.fxError)}</p>`:''}</section>`;}
+ function searchPane(){
+  const a=account();
+  const libGames=(window.data?.games||[]).slice(0,24);
+  return `
+  <div class="store-topbar">
+    <form id="price-search-form" class="price-search-unified">
+      <span class="price-search-lens">${icon('search')}</span>
+      <input id="price-query" placeholder="Поиск игры по каталогу... (например, Cyberpunk, Witcher, GTA)" maxlength="150" value="${esc(query)}" autocomplete="off">
+      ${query?`<button type="button" class="price-clear-btn" data-price="clearSearch" title="Очистить поиск">✕</button>`:''}
+      <button class="primary price-submit-btn" ${busy?'disabled':''}>Найти</button>
+    </form>
+    <button class="price-region-chip" data-price="settings" title="Сменить регион и валюту">
+      <span class="price-live-dot"></span>
+      <span>${esc(country(a.country))}</span>
+      <small>${esc(a.currency||'RUB')}</small>
+      ${icon('settings')}
+    </button>
+  </div>
+  ${!results?`<div class="store-nav-tabs">
+    <button class="store-tab-btn ${storeTab==='deals'?'active':''}" data-store-tab="deals">🔥 Горячие скидки</button>
+    <button class="store-tab-btn ${storeTab==='calendar'?'active':''}" data-store-tab="calendar">📅 Календарь распродаж</button>
+    <button class="store-tab-btn ${storeTab==='library'?'active':''}" data-store-tab="library">🎮 Моя библиотека (${libGames.length})</button>
+  </div>`:''}
+  ${error?`<p class="price-error" role="alert">${esc(error)}</p>`:''}
+  ${busy?loading():results?`
+    <div class="price-results-heading">
+      <div>
+        <h3>Найдено ${results.products?.length||0} предложений</h3>
+        <span>по запросу «${esc(query)}» · ${esc(country(results.country||a.country))}</span>
+      </div>
+      <button class="quiet" data-price="clearSearch">← Вернуться к скидкам</button>
+    </div>
+    ${results.products?.length?`<div class="price-search-results">${results.products.map(p=>`
+      <button class="price-product" data-price-product="${esc(p.token)}">
+        ${p.image&&/^https:\/\//i.test(p.image)?`<img src="${esc(p.image)}" alt="" loading="lazy">`:'<div class="price-cover-fallback">'+mark(source)+'</div>'}
+        <div>
+          <small>${esc(p.productType||'Игра')}</small>
+          <h3>${esc(p.name)}</h3>
+          <p class="price-product-native">${p.preview?original(p.preview):'Узнать цену'}</p>
+          ${p.preview?pair(p.preview,true):''}
+          <span class="price-product-action">Сравнить цены <b>→</b></span>
+        </div>
+      </button>`).join('')}</div>`:`<div class="price-empty"><span>🔍</span><h3>Ничего не найдено</h3><p>Попробуй изменить запрос или найти игру в другом написании.</p></div>`}
+    ${results.fxError?`<p class="note">${esc(results.fxError)}</p>`:''}
+    ${external(results.url,'Открыть в браузере')}
+  `:storeTab==='library'?`
+    <section class="store-library-section">
+      <div class="price-results-heading"><h3>Игры из твоей коллекции</h3><span>Нажми на игру для сравнения цен и скидок</span></div>
+      <div class="store-library-grid">
+        ${libGames.map(g=>`
+          <button class="store-lib-card" data-price-library="${esc(g.id)}">
+            ${g.cover?`<img src="${esc(g.cover)}" alt="" loading="lazy">`:`<div class="store-lib-fallback">${esc(g.name[0]||'o')}</div>`}
+            <div>
+              <strong>${esc(g.name)}</strong>
+              <small>${dot(g.store)} ${esc(names[g.store]||g.store)}</small>
+            </div>
+            <span class="store-lib-action">Цены →</span>
+          </button>`).join('')}
+      </div>
+    </section>
+  `:storeTab==='calendar'?`${discovery?OrbitSales.calendar(discovery):loading()}`:
+  discovery?discoveryPane():loading()
+  }`;
+}
+function discoveryPane(){return `${OrbitSales.calendar(discovery)}<section class="sale-featured"><div class="price-results-heading"><h3>${discovery.store==='steam'?'Сейчас на витрине Steam':'Акции выбранного магазина'}</h3><button class="quiet" data-price="deals">↻ Обновить</button></div><p class="note">${esc(discovery.message)}</p><div class="price-search-results">${(discovery.products||[]).map(p=>`<button class="price-product" data-price-product="${esc(p.token)}">${p.image&&/^https:\/\//.test(p.image)?`<img src="${esc(p.image)}" alt="" loading="lazy">`:''}<div><small>${esc(p.productType)}</small><h3>${esc(p.name)}</h3><p class="price-product-native"><b class="sale-discount">−${OrbitSales.pct(p.preview)}%</b> ${original(p.preview)}</p>${pair(p.preview,true)}<span class="price-product-action">Цены и ближайшие акции <b>→</b></span></div></button>`).join('')}</div>${discovery.fxDate?`<p class="note">Пересчёт ≈ по курсу ЦБ на ${esc(discovery.fxDate)}.</p>`:''}${discovery.fxError?`<p class="note">${esc(discovery.fxError)}</p>`:''}</section>`;}
  function officialCard(s){const o=s?.offers?.[0];return `<section class="price-official"><div class="price-source-title">${mark(selected.store)}<div><p>ЦЕНА МАГАЗИНА</p><h3>${esc(names[selected.store])}</h3></div><span class="price-region-pill">${esc(country(comparison?.country||account().country))}</span></div>${o?`<p class="price-official-name">${esc(o.name)}</p><p class="price-native">${original(o)} <small>исходная цена</small></p>${pair(o)}<p class="price-checked">Проверено ${esc(when(o.checkedAt))} · ${esc(o.currency||'бесплатная игра')}</p><p class="note">${esc(o.note)}</p>`:`<div class="price-no-quote"><strong>—</strong><p>${esc(s?.message||'Нет данных')}</p></div>`}<div class="price-source-bottom"><span>Непосредственно из витрины</span>${external(s?.url,'В магазин')}</div></section>`;}
  function offerCard(o){return `<article class="market-offer"><div class="market-offer-copy">${OrbitSales.marketTrigger(comparison,o)}<div class="market-tags"><span>${o.kind==='gift'?'Подарок':'Ключ'}</span><span>${esc(o.platform||'Платформа не указана')}</span><span>${esc(o.region||'Уточни регион')}</span>${o.edition?`<span>${esc(o.edition)}</span>`:''}</div><h4>${esc(o.name)}</h4><p class="market-seller">${esc(o.seller||'Продавец не указан')} <span>· ${esc(o.sellerInfo||'')}</span></p><p class="market-note">${esc(o.note)}</p></div><div class="market-offer-price"><strong>${original(o)}</strong><small>${o.currency==='RUB'?`≈ ${money(o.kzt,'KZT')}`:o.currency==='KZT'?`≈ ${money(o.rub,'RUB')}`:`${money(o.rub,'RUB')} · ${money(o.kzt,'KZT')}`}</small>${external(o.url,'К предложению')}<span>${esc(when(o.checkedAt))}</span></div></article>`;}
  function comparePane(){const data=comparison,market=data?.sources?.find(s=>s.source===activeMarket);return `
@@ -43,9 +100,12 @@
  function draw(){if(!api||!api.isOpen())return;OrbitSales.close();const reset=page!==lastPage;lastPage=page;api.modal('prices',`<div class="prices-body">${page==='settings'?settingsPane():page==='compare'?comparePane():searchPane()}</div>`,true);if(reset)$('#modal').scrollTop=0;}
  function receive(m){if(m.kind==='pricesSettingsError'){pendingSettings=false;error=m.message;draw();return true;}if(m.kind==='pricesSettings'){config=m.settings||{accounts:{}};if(pendingSettings){pendingSettings=false;settingsDraft=null;error='';page=settingsBack;comparison=null;results=null;discovery=null;if(page==='compare'&&selected){refresh();return true;}}if(api.isOpen())draw();return true;}if(!m.kind.startsWith('prices'))return false;if(m.requestId!==expected||!api.isOpen())return true;busy=false;if(m.kind==='pricesError')error=m.message;else if(m.kind==='pricesSearchResult'){results={...m.data,url:m.url};page='search';}else if(m.kind==='pricesDiscovery'){discovery=m.data;results=null;page='search';}else if(m.kind==='pricesResult'){comparison=m.data;page='compare';}draw();return true;}
  function closed(){OrbitSales.close();if(!api)return;pendingSettings=false;expected=String(++request);busy=false;api.send('pricesCancel');}
- document.addEventListener('submit',e=>{if(e.target.id==='price-search-form'){e.preventDefault();query=$('#price-query').value;source=$('#price-store').value;search();}if(e.target.id==='price-settings-form'){e.preventDefault();const accounts={};document.querySelectorAll('[data-price-country]').forEach(i=>{const s=i.dataset.priceCountry;accounts[s]={country:i.value.trim().toUpperCase(),currency:document.querySelector(`[data-price-currency="${s}"]`).value.trim().toUpperCase()};});expected=String(++request);busy=false;settingsDraft=accounts;pendingSettings=true;api.send('pricesSaveSettings',{accounts});}});
+ document.addEventListener('submit',e=>{if(e.target.id==='price-search-form'){e.preventDefault();query=$('#price-query').value.trim();if($('#price-store'))source=$('#price-store').value;search();}if(e.target.id==='price-settings-form'){e.preventDefault();const accounts={};document.querySelectorAll('[data-price-country]').forEach(i=>{const s=i.dataset.priceCountry;accounts[s]={country:i.value.trim().toUpperCase(),currency:document.querySelector(`[data-price-currency="${s}"]`).value.trim().toUpperCase()};});expected=String(++request);busy=false;settingsDraft=accounts;pendingSettings=true;api.send('pricesSaveSettings',{accounts});}});
  document.addEventListener('change',e=>{if(e.target.id==='price-store'){query=$('#price-query').value;source=e.target.value;results=null;error='';discover(false);}if(e.target.id==='price-copy'){const g=copies.find(c=>c.id===e.target.value);if(g){selected={id:g.id,store:g.store,name:g.name,image:g.background||g.cover};refresh(false);}}});
  document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!api?.isOpen())return;const d=b.dataset;
+  if(d.storeTab){storeTab=d.storeTab;draw();return;}
+  if(d.priceLibrary){const g=(window.data?.games||[]).find(x=>x.id===d.priceLibrary);if(g){selected={id:g.id,store:g.store,name:g.name,image:g.cover||g.background};copies=[];page='compare';comparison=null;refresh(false);}return;}
+  if(d.price==='clearSearch'){query='';results=null;error='';if(!discovery)discover(false);else draw();return;}
   if(d.priceUrl){api.send('pricesOpen',{url:d.priceUrl});return;}
   if(d.priceProduct){const p=[...(results?.products||[]),...(discovery?.products||[])].find(x=>x.token===d.priceProduct);if(p){selected=p;copies=[];page='compare';comparison=null;refresh(false);}return;}
   if(d.priceMarket){activeMarket=d.priceMarket;draw();return;}
