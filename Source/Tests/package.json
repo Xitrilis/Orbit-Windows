@@ -1,0 +1,24 @@
+{
+  "name": "orbit-checks",
+  "version": "0.11.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test library-model.test.cjs journal-model.test.cjs",
+    "test:ui": "node ui-check.cjs",
+    "test:bridge": "node native-bridge.cjs",
+    "test:assistant": "node assistant-ui.cjs",
+    "test:wallet": "node wallet-ui.cjs",
+    "test:prices": "node prices-ui.cjs",
+    "test:downloads": "node downloads-ui.cjs",
+    "test:artwork": "node artwork-ui.cjs",
+    "test:sales": "node sales-ui.cjs",
+    "test:home": "node home-ui.cjs",
+    "test:activity": "node activity-ui.cjs",
+    "test:support": "node support-ui.cjs",
+    "test:journal": "node journal-ui.cjs",
+    "test:minecraft": "node minecraft-ui.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

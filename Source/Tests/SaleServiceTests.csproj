@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+ <ItemGroup><Compile Include="SaleServiceTests.cs"/><Compile Include="../SaleData.cs"/><Compile Include="../PriceService.cs"/><Compile Include="../PriceService.Sales.cs"/><PackageReference Include="Newtonsoft.Json" Version="13.0.3"/><Reference Include="AngleSharp"><HintPath>../../engine/AngleSharp.dll</HintPath></Reference></ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+Id: 3e643d36-877c-4906-9b27-b193df91fc37
+Name: Orbit
+Author: Orbit
+Version: 0.11.0
+Module: Orbit.Plugin.dll
+Type: GenericPlugin
+Icon: orbit.ico

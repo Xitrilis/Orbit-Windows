@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net462</TargetFramework><LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget><AssemblyName>Orbit</AssemblyName><ApplicationIcon>../orbit.ico</ApplicationIcon>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Bootstrap.cs"/><Compile Include="StartupIntegrity.cs"/><Compile Include="AssemblyInfo.cs"/><Compile Include="DiagnosticsLog.cs"/><Compile Include="SupportBundle.cs"/>
+    <EmbeddedResource Include="../RuntimeFiles.sha256"><LogicalName>Orbit.RuntimeFiles</LogicalName></EmbeddedResource>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net462" Version="1.0.3" PrivateAssets="all"/>
+    <Reference Include="System.Windows.Forms"/>
+    <Reference Include="System.Drawing"/>
+  </ItemGroup>
+  <ItemGroup><Reference Include="System.Runtime.Serialization"/><Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/></ItemGroup>
+</Project>

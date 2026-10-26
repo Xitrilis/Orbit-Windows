@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><title>Orbit · помощник</title><link rel="stylesheet" href="assistant.css"></head>
+<body><div class="assistant-shell"><header class="assistant-titlebar"><div class="wordmark"><span class="orbit-symbol">✧</span> orbit<span class="mint">.</span> <span class="ai-tag">COMPANION</span></div><div class="window-tools"><button data-cmd="clearChat" title="Очистить диалог" aria-label="Очистить диалог">↺</button><button data-cmd="hide" title="Вернуться в игру · Escape" aria-label="Закрыть помощника">×</button></div></header>
+<div id="demo-label" hidden>ДЕМОНСТРАЦИЯ ИНТЕРФЕЙСА · без запросов к Gemini</div>
+<section class="context"><div class="context-eyebrow"><span class="pulse-dot"></span> РЯДОМ С ТВОЕЙ ИГРОЙ <span class="provider">Gemini API</span></div><label for="game-select" class="sr-only">Игра для разговора и диагностики</label><select id="game-select"><option value="">Выбери игру</option></select><div class="context-bottom"><span id="context-store">Вопросы, подсказки и разбор ошибок</span><kbd id="shortcut-label">Ctrl Shift Space</kbd></div></section>
+<nav class="assistant-tabs" aria-label="Раздел помощника"><button data-tab="chat" class="active">Помощник</button><button data-tab="diagnostics">Диагностика</button><button data-tab="settings">Настройки</button></nav>
+<div id="notice" role="status" hidden></div><main id="panel"></main>
+<footer class="assistant-footer"><span class="footer-dot"></span><span id="footer-label">Кадр только по нажатию. Игра не ставится на паузу.</span></footer></div>
+<script src="assistant.js"></script></body></html>

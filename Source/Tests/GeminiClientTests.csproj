@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+  <ItemGroup><Compile Include="GeminiClientTests.cs"/><Compile Include="../GeminiClient.cs"/><PackageReference Include="Newtonsoft.Json" Version="13.0.3"/></ItemGroup>
+</Project>

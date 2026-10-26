@@ -1,0 +1,45 @@
+const {chromium}=require('playwright'),path=require('node:path'),fs=require('node:fs'),assert=require('node:assert/strict'),{pathToFileURL}=require('node:url');
+const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'engine/Extensions/Orbit/ui/index.html')).href;
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.ORBIT_CHROME_PATH||undefined,args:['--no-sandbox']});
+ try{
+  fs.mkdirSync(path.join(root,'qa'),{recursive:true});
+  const page=await browser.newPage({viewport:{width:1360,height:950}}),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>sent.push(JSON.parse(s))};});await page.goto(file);
+  const last=k=>page.evaluate(k=>sent.filter(m=>m.kind===k).at(-1),k),receive=m=>page.evaluate(m=>Orbit.receive(m),m);
+  assert.match(await page.locator('#page-title').innerText(),/Главная/);assert.equal(await page.locator('#home-view').isVisible(),true);assert.equal(await last('homeRecommend'),undefined);
+  const data=await page.evaluate(()=>OrbitDemo());data.games[0].appId='990080';data.games[0].description='<b>Safe description</b>';await receive({kind:'snapshot',data});
+  const sample={id:'steam:990080',name:'Hogwarts Legacy',appId:'990080',store:'steam',image:'assets/990080-hero.jpg',price:5000,currency:'KZT',originalPrice:10000,priceToken:'fixture-token',description:'<script>Unsafe text</script>',features:['Single-player'],genres:['Adventure']};
+  const portal={id:'steam:620',appId:'620',name:'Portal 2',store:'steam',priceToken:'portal-token',image:'assets/1426210-hero.jpg',description:'Cooperative puzzles.',features:['Online Co-op','Shared/Split Screen Co-op']};
+  const today=new Date().toISOString().slice(0,10),next=new Date(Date.now()+86400000*10).toISOString().slice(0,10);
+  await receive({kind:'homeFeed',requestId:(await last('homeLoad')).requestId,aiReady:true,data:{deals:[sample],popular:[portal],releases:[portal],regionSet:true,country:'KZ',message:'Тестовая витрина Steam · KZ',calendar:{events:[{source:'steam',name:'Fixture sale',start:today,end:next}],cached:false}}});
+  assert.equal(await page.locator('.home-event').count(),1);assert.equal(await page.locator('#home-deals .home-discount').textContent(),'−50%');assert.match(await page.locator('#home-deals .home-owned').textContent(),/На твоём ПК/);
+  await receive({kind:'snapshot',data:{...data,prefs:{preferred:{'hogwarts legacy':'demo-hog-epic'}}}});assert.equal(await page.locator('#home-deals .home-card-bottom small').textContent(),'Steam','A Steam price keeps Steam as source even with a different preferred copy');
+  await page.screenshot({path:path.join(root,'qa/Orbit-home.png')});
+  await page.keyboard.press('Control+k');assert.equal(await page.locator('#home-query').evaluate(e=>e===document.activeElement),true);
+  await page.locator('[data-home-example]').first().click();assert.equal(await last('homeRecommend'),undefined,'Example never sends automatically');
+  await page.locator('#home-mode').selectOption('local');await page.locator('#home-only').check();await page.locator('#home-submit').click();let request=await last('homeRecommend');
+  assert.equal(request.mode,'local');assert.equal(request.ownedOnly,true);assert.equal(request.shareLibrary,true);assert.match(request.query,/вдвоём/);
+  await page.locator('#home-query').fill('Ещё похожие, но покороче');await receive({kind:'snapshot',data:{...data,notifications:['Обновление библиотеки']}});assert.equal(await page.locator('#home-query').inputValue(),'Ещё похожие, но покороче','Import preserves draft');
+  await receive({kind:'homeResults',requestId:request.requestId,ai:true,reply:'<b>Ответ ИИ</b>',games:[{...sample,reason:'<img src=x onerror=alert(1)>'},portal]});
+  assert.equal(await page.locator('.home-answer p b').count(),0);assert.equal(await page.locator('.home-reason img').count(),0);assert.equal(await page.locator('#home-query-results .home-card').count(),2);
+  await page.locator('#home-query-results').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(root,'qa/Orbit-home-ai.png')});
+  await page.locator('#home-query-results [data-home-game="steam:620"]').click();let detail=await last('homeDetails');assert.equal(detail.id,'steam:620');
+  await receive({kind:'homeDetail',requestId:detail.requestId,game:portal});assert.match(await page.locator('.home-feature-tags').textContent(),/Кооператив по сети/);
+  await page.locator('[data-home="compare"]').click();assert.equal((await last('pricesCompare')).token,'portal-token');await page.keyboard.press('Escape');await page.waitForTimeout(180);
+  await page.locator('#home-query-results [data-home-game="steam:990080"]').click();detail=await last('homeDetails');await receive({kind:'homeDetail',requestId:detail.requestId,game:sample});assert.equal(await page.locator('#modal script').count(),0);assert.equal(await page.locator('.home-description').innerText(),sample.description);
+  await page.locator('[data-home="library"]').click();assert.equal(await page.locator('#home-view').isVisible(),false);assert.equal(await page.locator('#modal').getAttribute('data-kind'),'detail');assert.match(await page.locator('#modal-title').textContent(),/Hogwarts/);await page.keyboard.press('Escape');await page.waitForTimeout(180);
+  await page.locator('[data-section="home"]').click();await page.locator('[data-home-tab="title"]').click();await page.locator('#home-query').fill('Batman Arkham Knight');await page.locator('#home-submit').click();request=await last('homeSearch');assert.equal(request.query,'Batman Arkham Knight');assert.equal(await page.locator('#home-share-label').isVisible(),false);
+  await page.locator('[data-home="cancel"]').click();await receive({kind:'homeResults',requestId:request.requestId,ai:false,reply:'STALE',games:[portal]});assert.equal(await page.locator('#home-query-results .home-card').count(),0);assert.doesNotMatch(await page.locator('#home-query-state').textContent(),/STALE/);
+  await page.locator('[data-home-tab="mood"]').click();await page.locator('#home-only').uncheck();await page.locator('#home-share').uncheck();await page.locator('#home-query').fill('Что-то короткое и спокойное');await page.locator('#home-submit').click();request=await last('homeRecommend');assert.equal(request.shareLibrary,false);assert.match(await page.locator('#home-privacy').innerText(),/не передаются/);
+  await receive({kind:'homeError',lane:'query',requestId:request.requestId,message:'<b>Ключ не настроен</b>'});assert.equal(await page.locator('.home-error b').count(),0);await page.locator('[data-home="ai-settings"]').click();assert.ok(await last('assistantSettings'));
+  await page.locator('#home-query').fill('Подбери игры');await page.locator('#home-submit').click();request=await last('homeRecommend');await receive({kind:'homeResults',requestId:request.requestId,ai:true,reply:'Уточни способ игры.',games:[]});await page.locator('[data-home="clear"]').click();assert.ok(await last('homeClear'));assert.equal(await page.locator('.home-answer').count(),0);
+  await page.locator('.home-featured [data-home-game]').click();detail=await last('homeDetails');await page.keyboard.press('Escape');await page.waitForTimeout(180);await receive({kind:'homeDetail',requestId:detail.requestId,game:portal});assert.equal(await page.locator('#modal-backdrop').isVisible(),false,'Late details cannot reopen modal');
+  await page.setViewportSize({width:880,height:640});await page.locator('main').evaluate(e=>e.scrollTop=0);await page.screenshot({path:path.join(root,'qa/Orbit-home-small.png')});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth&&document.querySelector('main').scrollWidth<=document.querySelector('main').clientWidth),true);
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('.home-card').first().evaluate(e=>getComputedStyle(e).animationName),'none');
+  await receive({kind:'pricesSettings',settings:{accounts:{steam:{country:'KZ',currency:'KZT'}}}});assert.equal((await last('homeLoad')).force,true,'Region changes refresh home prices');
+  await page.goto(file+'?demo=1');await page.locator('#home-query').fill('Двое вместе');await page.locator('#home-submit').click();assert.match(await page.locator('.home-answer').innerText(),/не ответ Gemini/);assert.equal(await page.evaluate(()=>sent.some(x=>x.kind.startsWith('home'))),false);
+  await page.goto(file);await page.evaluate(()=>delete window.CefSharp);await page.locator('[data-home="refresh"]').click();assert.match(await page.locator('#home-feed-note').innerText(),/Orbit.exe/);assert.equal(await page.locator('.home-skeleton').count(),0);
+  assert.deepEqual(errors,[]);console.log('HOME UI PASS: Home startup, feed, ownership, keyboard search, recommendation payload, privacy, cancellation, safe text, details/prices/library, late messages, preserved drafts, 880px, reduced motion, demo isolation and offline errors. Native bridge simulated.');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});

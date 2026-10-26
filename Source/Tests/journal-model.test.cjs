@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),{test}=require('node:test'),M=require('../../engine/Extensions/Orbit/ui/journal-model.js'),C=require('../../engine/Extensions/Orbit/ui/core.js');
+const games=[{id:'s',name:'Together',store:'steam',installed:false},{id:'e',name:'Together',store:'epic',installed:true},{id:'b',name:'Alone',store:'steam',installed:true}];const groups=()=>C.groupGames(games);
+test('installed alternative preserves Steam preference',()=>{const g=groups(),pool=M.candidates(g,new Map());assert.equal(pool[0].copy.id,'e');assert.equal(g[0].selected.id,'s');});
+test('queue metadata follows either copy',()=>{const r=M.index({entries:[{gameId:'e',queuedAt:'2026-10-26',position:2}]});assert.deepEqual(M.queue(groups(),r).map(g=>g.name),['Together']);});
+test('latest shared note and conflicts visible',()=>{const s=M.summary(groups()[0],M.index({entries:[{gameId:'e',note:'new',noteRevision:3},{gameId:'s',note:'old',noteRevision:1}]}));assert.equal(s.note,'new');assert.equal(s.variants.length,2);assert.deepEqual(s.expected,{s:1,e:3});});
+test('running copy excludes entire card',()=>{const g=C.groupGames(games.map(x=>x.id==='s'?{...x,running:true}:x));assert.equal(M.candidates(g,new Map()).length,1);});
+test('unplayed uses imported history',()=>assert.equal(M.candidates(groups(),new Map(),{scope:'unplayed',activity:[{gameId:'s'}]}).length,1));
+test('queue and genre filters',()=>assert.equal(M.candidates(groups(),new Map(),{scope:'queue'}).length,0));
+test('no repeats and no boundary duplicate',()=>{const p=M.candidates(groups(),new Map());const a=M.pick(p,[],()=>0),b=M.pick(p,a.history,()=>0),c=M.pick(p,b.history,()=>0);assert.notEqual(a.choice.group.key,b.choice.group.key);assert.notEqual(b.choice.group.key,c.choice.group.key);});
+test('empty and singleton picker',()=>{assert.equal(M.pick([]).choice,null);const p=M.candidates(groups(),new Map()).slice(0,1);assert.equal(M.pick(p,[p[0].group.key]).choice.group.key,p[0].group.key);});
+test('changed pool discards obsolete history',()=>{const p=M.candidates(groups(),new Map());assert.deepEqual(M.pick(p,['deleted'],()=>0).history,[p[0].group.key]);});

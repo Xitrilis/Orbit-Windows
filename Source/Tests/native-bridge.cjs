@@ -1,0 +1,43 @@
+const {chromium}=require('playwright');
+const path=require('node:path');
+const {pathToFileURL}=require('node:url');
+const assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'../..');
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.ORBIT_CHROME_PATH||undefined,args:['--no-sandbox']});
+ try {
+  const page=await browser.newPage({viewport:{width:1360,height:950}});
+  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>window.sent.push(JSON.parse(s))};});
+  await page.goto(pathToFileURL(path.join(root,'engine/Extensions/Orbit/ui/index.html')).href);
+  const last=kind=>page.evaluate(k=>window.sent.filter(m=>m.kind===k).at(-1),kind);
+  const receive=m=>page.evaluate(message=>window.Orbit.receive(message),m);
+  assert.equal((await last('ready')).kind,'ready');
+  const s='11111111-1111-1111-1111-111111111111',e='22222222-2222-2222-2222-222222222222';
+  const data={games:[{id:s,name:'Bridge Game',store:'steam',installed:true},{id:e,name:'Bridge Game',store:'epic',installed:false},{id:'33333333-3333-3333-3333-333333333333',name:'<img src=x onerror=alert(1)>',store:'gog',installed:false}],prefs:{},stores:[],downloads:[],notifications:['<b>Import failed</b>']};
+  await receive({kind:'snapshot',data});await page.locator('[data-section="all"]').click();
+  assert.equal(await page.locator('.game-card').count(),2);
+  assert.equal(await page.locator('.game-title img').count(),0);
+  assert.equal(await page.locator('#notifications b').count(),0);
+  const game=page.locator('.game-card').filter({has:page.locator('.game-title',{hasText:'Bridge Game'})});
+  await game.locator('.favorite').click();assert.deepEqual(new Set((await last('favorite')).ids),new Set([s,e]));
+  await game.locator('.poster').click();await page.locator('#modal .primary').click();
+  assert.equal((await last('play')).id,s);
+  await page.locator('[data-ask-game]').click();assert.equal((await last('assistant')).id,s);
+  await page.locator('[data-check-game]').click();assert.equal((await last('diagnostics')).id,s);
+  await page.locator('#modal .store-button').click();await page.locator('#popover .store-option').filter({hasText:'Epic Games'}).click();
+  const saved=(await last('prefs')).patch;assert.equal(Object.values(saved.preferred)[0],e);
+  await page.locator('#modal .primary').click();assert.equal((await last('installOptions')).id,e);
+  await receive({kind:'installOptions',id:e,libraries:[],drives:[{path:'D:\\',free:500*1024**3}],suggested:'C:\\Games\\Bridge Game'});
+  await page.locator('[data-path]').click();assert.equal(await page.locator('#install-path').inputValue(),'D:\\Games\\Bridge Game');
+  await page.locator('[data-cmd="browse"]').click();assert.equal((await last('browseFolder')).path,'D:\\Games\\Bridge Game');
+  await receive({kind:'folder',path:'D:\\Custom\\Bridge Game',free:200*1024**3});
+  await page.locator('[data-cmd="install"]').click();assert.deepEqual(await last('install'),{kind:'install',id:e,path:'D:\\Custom\\Bridge Game'});
+  await receive({kind:'installStarted'});assert.match(await page.locator('#downloads-title').textContent(),/Загрузки/);
+  await page.keyboard.press('Escape');await page.locator('.nav-item[data-cmd="accounts"]').click();await page.locator('[data-connect="steam"]').click();assert.equal((await last('connect')).store,'steam');
+  await page.locator('#refresh').click();assert.equal((await last('sync')).kind,'sync');await receive({kind:'syncDone'});assert.equal(await page.locator('#refresh').evaluate(el=>el.classList.contains('syncing')),false);
+  await page.reload();data.prefs=saved;await receive({kind:'snapshot',data});await page.locator('[data-section="all"]').click();assert.match(await game.locator('.store-button').textContent(),/Epic Games/);
+  assert.deepEqual(errors,[]);
+  console.log('Bridge PASS: real-data renderer, escaped metadata, favorite IDs, native play/install/connect/sync messages, selected folder and preference restoration. Native Windows host is simulated.');
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});

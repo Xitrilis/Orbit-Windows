@@ -1,0 +1,44 @@
+[
+  {
+    "name": "SteamLibrary_Builtin",
+    "version": "2.44",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/SteamLibrary_Builtin_2_44.pext",
+    "sha256": "b95b745f4da624462dbf1fbde358bb35bb8350dfda22580cc727e62452048c1f"
+  },
+  {
+    "name": "EpicGamesLibrary_Builtin",
+    "version": "2.29",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/EpicGamesLibrary_Builtin_2_29.pext",
+    "sha256": "7ae136f54ce80a0f9afda6182b09c20a4a2fb81a2335a96bef5278a1ce600904"
+  },
+  {
+    "name": "GogLibrary_Builtin",
+    "version": "2.23",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/GogLibrary_Builtin_2_23.pext",
+    "sha256": "712e0d1cca698200bb9cdf10165b4cd1f745ed5297e5ae77418fdc1bacabb05a"
+  },
+  {
+    "name": "BattlenetLibrary_Builtin",
+    "version": "2.24",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/BattlenetLibrary_Builtin_2_24.pext",
+    "sha256": "13ddcb99fe48ac36591d51955c595bdd13baa3feecc1dcee8490272839d3512b"
+  },
+  {
+    "name": "UplayLibrary_Builtin",
+    "version": "2.9",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/UplayLibrary_Builtin_2_9.pext",
+    "sha256": "73670a8cbb03335b759ba305f620377a6d09926f94f7fd7fbff55d5c0d3f8924"
+  },
+  {
+    "name": "IGDBMetadata_Builtin",
+    "version": "2.13",
+    "url": "https://github.com/JosefNemec/PlayniteExtensions/releases/download/2.2/IGDBMetadata_Builtin_2_13.pext",
+    "sha256": "29c29469b845118a7589127d40f1a6dbcbc17f31e4d8ca9e493fb03a3ab471ff"
+  },
+  {
+    "name": "OriginLibrary_Builtin",
+    "version": "3.2.2",
+    "url": "https://github.com/Jeshibu/PlayniteExtensions/releases/download/ea3.2.2/EaLibrary_3_2_2.pext",
+    "sha256": "abfd96cfae66a57d9c951b3a3db8436069171b2f341adc80485ac797b18f9730"
+  }
+]

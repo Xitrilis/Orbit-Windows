@@ -1,0 +1,30 @@
+# Sensitive data & API keys (Gemini key in DPAPI, local settings)
+engine/OrbitData/
+engine/library/
+engine/browsercache/
+engine/ExtensionsData/
+
+# Logs, temporary files, diagnostic reports and archives
+*.log
+*.tmp
+*.bak
+*.zip
+*.partial-*
+Orbit-startup-report.txt
+Orbit-report-*.zip
+
+# Third-party Playnite runtime binaries (exceeds GitHub 100MB limit due to libcef.dll 227MB;
+# official runtime baseline is tracked in Notices/playnite-runtime.sha256)
+engine/*
+!engine/Extensions/
+engine/Extensions/*
+!engine/Extensions/Orbit/
+
+# Build & Dependency caches
+bin/
+obj/
+__pycache__/
+node_modules/
+.vs/
+.idea/
+.vscode/
