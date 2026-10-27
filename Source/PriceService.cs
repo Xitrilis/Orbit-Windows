@@ -22,7 +22,16 @@ namespace Orbit
     {
         public Dictionary<string, PriceAccount> accounts = new Dictionary<string, PriceAccount>();
         public Dictionary<string, string> funpaySections = new Dictionary<string, string>();
-        public PriceAccount Account(string store) => accounts.ContainsKey(store) ? accounts[store] : new PriceAccount();
+        // A known Steam storefront region is the shared default, not proof of another account's country.
+        // Currency is deliberately not inherited: each storefront returns its own currency.
+        public PriceAccount Account(string store)
+        {
+            PriceAccount own, shared;
+            accounts.TryGetValue(store, out own);
+            accounts.TryGetValue("steam", out shared);
+            return new PriceAccount { country = !string.IsNullOrEmpty(own?.country) ? own.country : shared?.country ?? "",
+                currency = own?.currency ?? "" };
+        }
     }
     public sealed class PriceProduct
     {
@@ -40,7 +49,7 @@ namespace Orbit
     }
     public sealed class PriceSourceResult
     {
-        public string source, status, message, url;
+        public string source, status, message, url, regionBasis;
         public List<PriceOffer> offers = new List<PriceOffer>();
         public int excluded;
         public string match, promotionMessage;
@@ -389,6 +398,9 @@ namespace Orbit
                     if (source == "plati" || source == "funpay") return await Marketplace(source, game, account, settings, force, ct).ConfigureAwait(false);
                     var own = settings.Account(source);
                     var quote = source == game.store ? await OfficialQuote(game, own, force, ct).ConfigureAwait(false) : await MatchingQuote(source, game, own, force, ct).ConfigureAwait(false);
+                    PriceAccount explicitAccount;
+                    if (!settings.accounts.TryGetValue(source, out explicitAccount) || string.IsNullOrEmpty(explicitAccount.country))
+                        quote.regionBasis = "общий регион из Steam";
                     if (source == "epic" && quote.offers.Count == 1 && !string.IsNullOrEmpty(own.country)) {
                         try { quote.promotions = MatchPromotions((await EpicPromotions(own.country, force, ct).ConfigureAwait(false)).body, quote.offers[0].productKey, DateTime.UtcNow); }
                         catch { ct.ThrowIfCancellationRequested(); quote.promotionMessage = "Календарь акций Epic сейчас недоступен."; }

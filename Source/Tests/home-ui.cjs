@@ -39,7 +39,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('.home-card').first().evaluate(e=>getComputedStyle(e).animationName),'none');
   await receive({kind:'pricesSettings',settings:{accounts:{steam:{country:'KZ',currency:'KZT'}}}});assert.equal((await last('homeLoad')).force,true,'Region changes refresh home prices');
   await page.goto(file+'?demo=1');await page.locator('#home-query').fill('Двое вместе');await page.locator('#home-submit').click();assert.match(await page.locator('.home-answer').innerText(),/не ответ Gemini/);assert.equal(await page.evaluate(()=>sent.some(x=>x.kind.startsWith('home'))),false);
-  await page.goto(file);await page.evaluate(()=>delete window.CefSharp);await page.locator('[data-home="refresh"]').click();assert.match(await page.locator('#home-feed-note').innerText(),/Orbit.exe/);assert.equal(await page.locator('.home-skeleton').count(),0);
+  await page.goto(file);await receive({kind:'snapshot',data:{games:[],prefs:{},stores:[],downloads:[]}});await page.evaluate(()=>delete window.CefSharp);await page.locator('[data-home="refresh"]').click();assert.match(await page.locator('#home-feed-note').innerText(),/Orbit.exe/);assert.equal(await page.locator('.home-skeleton').count(),0);
   assert.deepEqual(errors,[]);console.log('HOME UI PASS: Home startup, feed, ownership, keyboard search, recommendation payload, privacy, cancellation, safe text, details/prices/library, late messages, preserved drafts, 880px, reduced motion, demo isolation and offline errors. Native bridge simulated.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

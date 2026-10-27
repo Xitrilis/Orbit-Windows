@@ -109,6 +109,8 @@ namespace Orbit
             };
             browser.FrameLoadEnd += (s, e) => { if (e.Frame.IsMain) Ui(() => { ready = true;diagnosticLog?.Record("browser.ready",component:"browser"); Snapshot(true); }); };
             browser.LoadError += (s,e) => { if(e.Frame.IsMain && (int)e.ErrorCode != -3) diagnosticLog?.Record("browser.load.failed",component:"browser",number:(int)e.ErrorCode); };
+            // Keep HTML scrollbar hit targets inside the native six-pixel resize frame.
+            browser.Margin = new Thickness(6);
             window.Content = browser;
             window.Closing += (s, e) => { if (!exiting) { e.Cancel = true; window.Hide(); } };
             window.SourceInitialized += (s, e) => { try { var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle; int round = 2; DwmSetWindowAttribute(hwnd, 33, ref round, 4); assistant?.Register(hwnd); } catch { } };
