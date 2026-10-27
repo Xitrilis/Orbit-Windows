@@ -14,7 +14,7 @@ def rebuild():
     (ROOT/'RuntimeFiles.sha256').write_text('\n'.join(sorted(rows))+'\n',encoding='utf-8',newline='\n')
     output=ROOT/'qa/bootstrap-build'
     output.mkdir(parents=True,exist_ok=True)
-    compiler=os.environ.get('ORBIT_CSC')
+    compiler=os.environ.get('ORBIT_CSC') or (str(ROOT/'qa/compiler/tasks/net472/csc.exe') if (ROOT/'qa/compiler/tasks/net472/csc.exe').exists() else None)
     project=ROOT/'Source/Orbit.Bootstrap.csproj'
     if compiler:
         xml=ET.parse(project)

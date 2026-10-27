@@ -7,9 +7,20 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using Orbit;
 class OrbitBootstrap {
+ sealed class SplashForm:Form {
+  public SplashForm(){
+   DoubleBuffered=true;
+   SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.UserPaint|ControlStyles.OptimizedDoubleBuffer,true);
+  }
+ }
+ [DllImport("dwmapi.dll",PreserveSig=true)]static extern int DwmSetWindowAttribute(IntPtr hwnd,int attr,ref int attrValue,int attrSize);
+ [DllImport("user32.dll")]static extern bool ReleaseCapture();
+ [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr hWnd,int Msg,IntPtr wParam,IntPtr lParam);
  [STAThread]static void Main(string[] args) {
   Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
   var root=AppDomain.CurrentDomain.BaseDirectory;
@@ -49,15 +60,109 @@ class OrbitBootstrap {
  static List<string> Validate(string root) {
   List<string> result=null;
   using(var cancel=new CancellationTokenSource())
-  using(var form=new Form{Text="Orbit",ClientSize=new Size(470,172),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,BackColor=Color.FromArgb(16,23,29),ForeColor=Color.FromArgb(205,228,216),Font=new Font("Segoe UI",10),ShowInTaskbar=true}) {
+  using(var form=new SplashForm{
+   Text="Orbit",ClientSize=new Size(500,210),StartPosition=FormStartPosition.CenterScreen,
+   FormBorderStyle=FormBorderStyle.None,BackColor=Color.FromArgb(14,18,24),
+   ForeColor=Color.FromArgb(205,228,216),Font=new Font("Segoe UI",10),
+   ShowInTaskbar=true
+  }) {
    try{form.Icon=new Icon(Path.Combine(root,"orbit.ico"));}catch{}
-   var title=new Label{Text="orbit.",Font=new Font("Segoe UI",23,FontStyle.Bold),Location=new Point(25,18),AutoSize=true};
-   var status=new Label{Text="Проверяем файлы перед запуском…",Location=new Point(27,78),Size=new Size(420,26)};
-   var progress=new ProgressBar{Location=new Point(28,122),Size=new Size(414,5),Style=ProgressBarStyle.Continuous};
-   form.Controls.Add(title);form.Controls.Add(status);form.Controls.Add(progress);
+   try{
+    int round=2;DwmSetWindowAttribute(form.Handle,33,ref round,4);
+    int dark=1;DwmSetWindowAttribute(form.Handle,20,ref dark,4);
+   }catch{}
+
+   form.MouseDown+=(s,e)=>{
+    if(e.Button==MouseButtons.Left){ReleaseCapture();SendMessage(form.Handle,0xA1,(IntPtr)2,IntPtr.Zero);}
+   };
+
+   int currentProgress=0;
+   string currentStatus="Проверка целостности компонентов…";
+
+   form.Paint+=(s,e)=>{
+    var g=e.Graphics;
+    g.SmoothingMode=SmoothingMode.AntiAlias;
+    g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+    using(var borderPen=new Pen(Color.FromArgb(34,44,58),1)){
+     g.DrawRectangle(borderPen,0,0,form.Width-1,form.Height-1);
+    }
+    using(var accentBrush=new LinearGradientBrush(new Point(0,0),new Point(form.Width,0),Color.FromArgb(70,200,160),Color.FromArgb(165,228,209)))
+    using(var accentPen=new Pen(accentBrush,2)){
+     g.DrawLine(accentPen,0,0,form.Width,0);
+    }
+
+    int iconX=32,iconY=28;
+    using(var orbitPen=new Pen(Color.FromArgb(110,165,228,209),2f)){
+     var state=g.Save();
+     g.TranslateTransform(iconX+18,iconY+18);
+     g.RotateTransform(-35);
+     g.DrawEllipse(orbitPen,-18,-9,36,18);
+     g.Restore(state);
+    }
+    using(var planetBrush=new SolidBrush(Color.FromArgb(165,228,209))){
+     g.FillEllipse(planetBrush,iconX+13,iconY+13,10,10);
+    }
+    using(var satBrush=new SolidBrush(Color.FromArgb(230,250,245))){
+     g.FillEllipse(satBrush,iconX+28,iconY+5,5,5);
+    }
+
+    using(var eyebrowFont=new Font("Segoe UI",8.5f,FontStyle.Bold))
+    using(var eyebrowBrush=new SolidBrush(Color.FromArgb(110,145,140))){
+     g.DrawString("ORBIT / LAUNCHER",eyebrowFont,eyebrowBrush,80,24);
+    }
+
+    using(var titleFont=new Font("Segoe UI",20f,FontStyle.Bold))
+    using(var titleBrush=new SolidBrush(Color.FromArgb(235,245,242)))
+    using(var dotBrush=new SolidBrush(Color.FromArgb(165,228,209))){
+     g.DrawString("orbit",titleFont,titleBrush,78,38);
+     var titleSize=g.MeasureString("orbit",titleFont);
+     g.DrawString(".",titleFont,dotBrush,78+titleSize.Width-7,38);
+    }
+
+    using(var statusFont=new Font("Segoe UI",9.5f,FontStyle.Regular))
+    using(var statusBrush=new SolidBrush(Color.FromArgb(155,175,185))){
+     g.DrawString(currentStatus,statusFont,statusBrush,32,118);
+    }
+
+    using(var pctFont=new Font("Segoe UI",10f,FontStyle.Bold))
+    using(var pctBrush=new SolidBrush(Color.FromArgb(165,228,209))){
+     string pctStr=currentProgress+"%";
+     var pctSize=g.MeasureString(pctStr,pctFont);
+     g.DrawString(pctStr,pctFont,pctBrush,form.Width-32-pctSize.Width,117);
+    }
+
+    int barX=32,barY=146,barW=form.Width-64,barH=6;
+    using(var trackBrush=new SolidBrush(Color.FromArgb(24,32,42))){
+     g.FillRectangle(trackBrush,barX,barY,barW,barH);
+    }
+    int fillW=Math.Max(0,Math.Min(barW,(int)(barW*(currentProgress/100.0))));
+    if(fillW>0){
+     using(var fillBrush=new LinearGradientBrush(new Point(barX,barY),new Point(barX+barW,barY),Color.FromArgb(50,185,145),Color.FromArgb(165,228,209))){
+      g.FillRectangle(fillBrush,barX,barY,fillW,barH);
+     }
+     using(var headBrush=new SolidBrush(Color.FromArgb(230,255,248))){
+      g.FillEllipse(headBrush,barX+fillW-3,barY-1,6,8);
+     }
+    }
+
+    using(var footFont=new Font("Segoe UI",8.5f,FontStyle.Regular))
+    using(var footBrush=new SolidBrush(Color.FromArgb(75,95,105))){
+     g.DrawString("Все твои игры в одном месте · Проверка файлов",footFont,footBrush,32,170);
+    }
+   };
+
    form.FormClosing+=(s,e)=>cancel.Cancel();
    form.Shown+=async(s,e)=>{
-    var update=new Progress<int>(n=>{if(!form.IsDisposed)progress.Value=Math.Max(0,Math.Min(100,n));});
+    var update=new Progress<int>(n=>{
+     if(!form.IsDisposed){
+      currentProgress=Math.Max(0,Math.Min(100,n));
+      if(currentProgress<30)currentStatus="Проверка манифеста и целостности…";
+      else if(currentProgress<80)currentStatus="Сверка игровых компонентов…";
+      else currentStatus="Запуск Orbit…";
+      form.Invalidate();
+     }
+    });
     try {
      using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("Orbit.RuntimeFiles"))
      using(var reader=stream==null?null:new StreamReader(stream)) {
