@@ -20,7 +20,7 @@
   return res;
  }
 
- let api=null,qsTimer=null,qsSeq=0,activeIdx=-1,steamResults=[],isOpenState=false;
+ let api=null,qsTimer=null,qsSeq=0,activeIdx=-1,steamResults=[],isOpenState=false,currentQuery='',returnFocus=null;
 
  function matchesQuery(name,q){
   if(!name||!q)return false;
@@ -70,39 +70,41 @@
   const backdrop=$('#quick-search-backdrop');
   if(!backdrop)return;
   backdrop.addEventListener('click',e=>{
-   if(e.target===backdrop||e.target.closest('#quick-search-close-btn'))close();
+   if(e.target===backdrop||e.target.closest('#quick-search-close-btn')){
+    close();
+    return;
+   }
+   const btn=e.target.closest('button[data-qs-action]');
+   if(btn){
+    const act=btn.dataset.qsAction;
+    close();
+    if(act==='play'&&btn.dataset.qsId)api?.play?.(btn.dataset.qsId);
+    else if(act==='open'&&btn.dataset.qsKey)api?.openKey?.(btn.dataset.qsKey);
+    return;
+   }
+   const item=e.target.closest('.quick-search-item');
+   if(item)activateItem(item);
   });
+
   const input=$('#quick-search-input');
   if(input){
    input.addEventListener('input',()=>handleInput(input.value.trim()));
    input.addEventListener('keydown',handleKeydown);
   }
-  document.addEventListener('click',e=>{
-   const b=e.target.closest('button,[data-qs-open],[data-qs-play],[data-qs-product]');
-   if(!b||!isOpenState)return;
-   const d=b.dataset;
-   if(d.qsOpen){
-    close();
-    api?.openKey?.(d.qsOpen);
-   }else if(d.qsPlay){
-    close();
-    api?.play?.(d.qsPlay);
-   }else if(d.qsProduct){
-    close();
-    const p=steamResults.find(x=>(x.token||x.id)===d.qsProduct);
-    if(p&&api?.openProduct)api.openProduct(p);
-    else if(api?.openPrices)api.openPrices();
-   }
-  });
  }
 
  function open(){
   ensureDom();
   const backdrop=$('#quick-search-backdrop');
   if(!backdrop)return;
+  returnFocus=document.activeElement;
   backdrop.hidden=false;
   isOpenState=true;
-  activeIdx=-1;
+  activeIdx=0;
+  currentQuery='';
+  steamResults=[];
+  qsSeq++;
+  clearTimeout(qsTimer);
   const input=$('#quick-search-input');
   if(input){
    input.value='';
@@ -117,7 +119,14 @@
   backdrop.hidden=true;
   isOpenState=false;
   activeIdx=-1;
+  currentQuery='';
+  steamResults=[];
+  qsSeq++;
   clearTimeout(qsTimer);
+  if(returnFocus&&returnFocus.isConnected&&typeof returnFocus.focus==='function'){
+   returnFocus.focus({preventScroll:true});
+  }
+  returnFocus=null;
  }
 
  function toggle(){
@@ -143,26 +152,33 @@
     <button type="button" class="quick-search-btn" data-qs-nav="all">Вся библиотека ↗</button>
     <button type="button" class="quick-search-btn" data-qs-nav="minecraft">Minecraft ↗</button>
    </div>`;
+  activeIdx=0;
   highlightActive();
  }
 
  function renderLibraryItem(g,idx){
   const art=safeImage(g.icon||g.cover||g.background);
-  const installed=g.installed;
+  const copyId=g.selected?.id||g.copies?.[0]?.id||g.id;
+  const isInstalled=Boolean(g.installed&&copyId);
   return `
-   <div class="quick-search-item ${idx===activeIdx?'active':''}" data-qs-idx="${idx}" data-qs-open="${esc(g.key)}">
+   <div class="quick-search-item ${idx===activeIdx?'active':''}"
+        data-qs-idx="${idx}"
+        data-qs-kind="library"
+        data-qs-installed="${isInstalled}"
+        data-qs-id="${esc(copyId)}"
+        data-qs-key="${esc(g.key)}">
     <div class="quick-search-art">${art?`<img src="${esc(art)}" alt="">`:`<span>${esc((g.name||'G')[0])}</span>`}</div>
     <div class="quick-search-meta">
      <div class="quick-search-name">${esc(g.name)}</div>
      <div class="quick-search-sub">
       <span>${esc(g.selected?.store?g.selected.store.toUpperCase():'PC')}</span>
       <span>·</span>
-      <span>${installed?'✓ На этом ПК':'В библиотеке'}</span>
+      <span>${isInstalled?'✓ На этом ПК':'В библиотеке'}</span>
       ${g.playtime?`<span>·</span><span>${Math.round(g.playtime/3600)} ч.</span>`:''}
      </div>
     </div>
     <div class="quick-search-side">
-     ${installed?`<button type="button" class="quick-search-btn" data-qs-play="${esc(g.selected.id)}">Играть ↗</button>`:`<button type="button" class="quick-search-btn" data-qs-open="${esc(g.key)}">В библиотеку ↗</button>`}
+     ${isInstalled?`<button type="button" class="quick-search-btn" data-qs-action="play" data-qs-id="${esc(copyId)}">Играть ↗</button>`:`<button type="button" class="quick-search-btn" data-qs-action="open" data-qs-key="${esc(g.key)}">В библиотеку ↗</button>`}
     </div>
    </div>`;
  }
@@ -178,7 +194,10 @@
    }
   }
   return `
-   <div class="quick-search-item ${idx===activeIdx?'active':''}" data-qs-idx="${idx}" data-qs-product="${esc(p.token||p.id)}">
+   <div class="quick-search-item ${idx===activeIdx?'active':''}"
+        data-qs-idx="${idx}"
+        data-qs-kind="steam"
+        data-qs-product="${esc(p.token||p.id)}">
     <div class="quick-search-art">${p.image?`<img src="${esc(p.image)}" alt="">`:`<span>S</span>`}</div>
     <div class="quick-search-meta">
      <div class="quick-search-name">${esc(p.name)}</div>
@@ -191,14 +210,16 @@
       ${disc>0?`<span class="quick-search-disc">−${disc}%</span>`:''}
       <span>${esc(priceText)}</span>
      </div>
-     <button type="button" class="quick-search-btn" data-qs-product="${esc(p.token||p.id)}">Цены ↗</button>
+     <button type="button" class="quick-search-btn" data-qs-action="product" data-qs-product="${esc(p.token||p.id)}">Цены ↗</button>
     </div>
    </div>`;
  }
 
  function handleInput(q){
-  activeIdx=-1;
+  activeIdx=0;
+  currentQuery=q;
   if(!q){
+   steamResults=[];
    renderRecentOrEmpty();
    return;
   }
@@ -208,9 +229,11 @@
 
   clearTimeout(qsTimer);
   if(q.length>=2){
+   const reqSeq=++qsSeq;
+   const reqQ=q;
    qsTimer=setTimeout(()=>{
-    const reqId='qs-'+(++qsSeq);
-    api?.send?.('pricesSearch',{store:'steam',query:q,requestId:reqId,force:false});
+    if(!isOpenState||currentQuery!==reqQ)return;
+    api?.send?.('pricesSearch',{store:'steam',query:reqQ,requestId:'qs-'+reqSeq,force:false});
    },240);
   }
  }
@@ -235,6 +258,23 @@
   highlightActive();
  }
 
+ function activateItem(item){
+  if(!item)return;
+  const d=item.dataset;
+  close();
+  if(d.qsKind==='library'){
+   if(d.qsInstalled==='true'&&d.qsId){
+    api?.play?.(d.qsId);
+   }else if(d.qsKey){
+    api?.openKey?.(d.qsKey);
+   }
+  }else if(d.qsKind==='steam'&&d.qsProduct){
+   const p=steamResults.find(x=>(x.token||x.id)===d.qsProduct);
+   if(p&&api?.openProduct)api.openProduct(p);
+   else if(api?.openPrices)api.openPrices();
+  }
+ }
+
  function handleKeydown(e){
   const items=$$('.quick-search-item');
   if(e.key==='ArrowDown'){
@@ -250,8 +290,9 @@
   }else if(e.key==='Enter'){
    e.preventDefault();
    if(activeIdx>=0&&items[activeIdx]){
-    const btn=items[activeIdx].querySelector('button')||items[activeIdx];
-    btn.click();
+    activateItem(items[activeIdx]);
+   }else if(items.length>0){
+    activateItem(items[0]);
    }
   }else if(e.key==='Escape'){
    e.preventDefault();
@@ -269,14 +310,15 @@
  }
 
  function receive(m){
+  if(!isOpenState)return false;
   if(m.kind==='pricesSearchResult'&&typeof m.requestId==='string'&&m.requestId.startsWith('qs-')){
-   if(m.requestId==='qs-'+qsSeq&&isOpenState){
+   const input=$('#quick-search-input');
+   const liveQuery=input?input.value.trim():'';
+   if(m.requestId==='qs-'+qsSeq&&liveQuery===currentQuery){
     steamResults=m.data?.products||[];
-    const input=$('#quick-search-input');
-    const q=input?input.value.trim():'';
     const groups=api?.groups?.()||[];
-    const libMatches=q?groups.filter(g=>matchesQuery(g.name,q)).slice(0,6):[];
-    renderResults(q,libMatches,steamResults);
+    const libMatches=currentQuery?groups.filter(g=>matchesQuery(g.name,currentQuery)).slice(0,6):[];
+    renderResults(currentQuery,libMatches,steamResults);
    }
    return true;
   }
