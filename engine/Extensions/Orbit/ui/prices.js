@@ -7,7 +7,7 @@
  const icon=n=>typeof window!=='undefined'&&window.OrbitIcon?window.OrbitIcon(n):(n==='search'?'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>':n==='settings'?'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m9 3-.5 2.5-2 .9L4 6l-1.5 3 1.8 1.8v2.4L2.5 15 4 18l2.5-.4 2 .9L9 21h6l.5-2.5 2-.9 2.5.4 1.5-3-1.8-1.8v-2.4L21.5 9 20 6l-2.5.4-2-.9L15 3Z"/></svg>':'');
  const dot=s=>typeof window!=='undefined'&&window.OrbitDot?window.OrbitDot(s):`<i class="store-dot ${esc(s)}"></i>`;
  const S=()=>typeof window!=='undefined'?(window.OrbitSales||{}):{};
- let api,config={accounts:{},funpaySections:{}},page='search',source='steam',query='',selected=null,storeTab='deals',dealFilter='all',copies=[],results=null,comparison=null,busy=false,error='',activeMarket='funpay',request=0,expected='',settingsBack='search',pendingSettings=false,lastPage='',settingsDraft=null,discovery=null;
+ let api,config={accounts:{},funpaySections:{}},page='search',suggestTimer=null,suggestSeq=0,suggestMap=new Map(),suggestItems=[],source='steam',query='',selected=null,storeTab='deals',dealFilter='all',copies=[],results=null,comparison=null,busy=false,error='',activeMarket='funpay',request=0,expected='',settingsBack='search',pendingSettings=false,lastPage='',settingsDraft=null,discovery=null;
  const account=()=>{const a=config.accounts?.[selected?.store||source]||{};return{country:a.country||config.accounts?.steam?.country||'',currency:a.currency||''};},country=c=>countries[c]||c||'Регион не выбран';
  const money=(v,c)=>v==null?'—':new Intl.NumberFormat('ru-RU',{style:'currency',currency:c,currencyDisplay:'narrowSymbol',minimumFractionDigits:0,maximumFractionDigits:2}).format(v);
  const when=t=>t?new Date(t).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
@@ -24,6 +24,50 @@
  function loading(){return '<div class="price-loading" role="status"><span class="price-spinner"></span><strong>Проверяем источники</strong><p>Получаем цены, условия предложений и курс валют.</p><button class="quiet" data-price="cancel">Остановить</button></div>';}
  function pair(o,small=false){return `<div class="price-pair ${small?'small':''}"><div><span>${o.currency==='RUB'?'ЦЕНА В РУБЛЯХ':'ПЕРЕСЧЁТ В РУБЛИ'}</span><strong>${o.rub!=null&&o.currency!=='RUB'?'≈ ':''}${money(o.rub,'RUB')}</strong></div><div><span>${o.currency==='KZT'?'ЦЕНА В ТЕНГЕ':'ПЕРЕСЧЁТ В ТЕНГЕ'}</span><strong>${o.kzt!=null&&o.currency!=='KZT'?'≈ ':''}${money(o.kzt,'KZT')}</strong></div></div>`;}
  function original(o){if(o.free)return 'Бесплатно';return `${o.from?'От ':''}${o.currency?money(o.amount,o.currency):'—'}${o.originalAmount>o.amount?` <del>${money(o.originalAmount,o.currency)}</del>`:''}`;}
+ function handleSuggest(val){
+  const q=val.trim();
+  const box=$('#price-suggestions');
+  if(!box)return;
+  if(q.length<2){box.hidden=true;box.innerHTML='';suggestItems=[];return;}
+  const localMatches=[];
+  const discProds=discovery?.products||[];
+  for(const p of discProds){
+   if(p.name&&p.name.toLowerCase().includes(q.toLowerCase()))localMatches.push(p);
+  }
+  if(localMatches.length){suggestItems=localMatches;renderSuggestions(localMatches);}
+  clearTimeout(suggestTimer);
+  suggestTimer=setTimeout(()=>{
+   const id='suggest-'+(++suggestSeq);
+   api.send('pricesSearch',{store:source||'steam',query:q,requestId:id,force:false});
+  },240);
+ }
+ function renderSuggestions(products){
+  const box=$('#price-suggestions');
+  if(!box)return;
+  if(!products||!products.length){box.hidden=true;return;}
+  box.hidden=false;
+  box.innerHTML=`<div class="price-suggest-list">${products.slice(0,8).map(p=>{
+   const o=p.preview;let priceText='В магазине ↗',disc=0;
+   if(o){
+    if(o.free)priceText='Бесплатно';
+    else{
+     priceText=o.rub!=null?(o.currency!=='RUB'?'≈ ':'')+money(o.rub,'RUB'):money(o.amount,o.currency);
+     disc=o.originalAmount>o.amount&&o.amount!=null?Math.round((1-o.amount/o.originalAmount)*100):0;
+    }
+   }
+   return `<button type="button" class="price-suggest-item" data-price-suggest="${esc(p.token||p.id)}">
+    <span class="price-suggest-art">${p.image?`<img src="${esc(p.image)}" alt="">`:mark(p.store||'steam')}</span>
+    <span class="price-suggest-details">
+     <strong class="price-suggest-name">${esc(p.name)}</strong>
+     <small class="price-suggest-type">${esc(p.productType||'Steam · Каталог')}</small>
+    </span>
+    <span class="price-suggest-price-box">
+     ${disc>0?`<span class="price-suggest-disc">−${disc}%</span>`:''}
+     <strong class="price-suggest-val">${esc(priceText)}</strong>
+    </span>
+   </button>`;
+  }).join('')}</div>`;
+ }
  function searchPane(){
   const a=account();
   const libGames=window.Orbit?.library()||[];
@@ -34,6 +78,7 @@
       <input id="price-query" placeholder="Поиск игры по каталогу... (например, Cyberpunk, Witcher, GTA)" maxlength="150" value="${esc(query)}" autocomplete="off">
       ${query?`<button type="button" class="price-clear-btn" data-price="clearSearch" title="Очистить поиск">✕</button>`:''}
       <button class="primary price-submit-btn" ${busy?'disabled':''}>Найти</button>
+      <div id="price-suggestions" class="price-suggestions" hidden></div>
     </form>
     <button class="price-region-chip" data-price="settings" title="Сменить регион и валюту">
       <span class="price-live-dot"></span>
@@ -132,11 +177,31 @@
    api.modal('prices',`<div class="prices-body"><p class="price-error" role="alert">Ошибка интерфейса магазина: ${esc(err?.message||err)}</p><button class="quiet" data-price="back">← Назад</button></div>`,true);
   }
  }
- function receive(m){if(m.kind==='pricesSettingsError'){pendingSettings=false;error=m.message;draw();return true;}if(m.kind==='pricesSettings'){config=m.settings||{accounts:{}};if(pendingSettings){pendingSettings=false;settingsDraft=null;error='';page=settingsBack;comparison=null;results=null;discovery=null;if(page==='compare'&&selected){refresh();return true;}}if(api.isOpen())draw();return true;}if(!m.kind.startsWith('prices'))return false;if(m.requestId!==expected||!api.isOpen())return true;busy=false;if(m.kind==='pricesError')error=m.message;else if(m.kind==='pricesSearchResult'){results={...m.data,url:m.url};page='search';}else if(m.kind==='pricesDiscovery'){discovery=m.data;results=null;page='search';}else if(m.kind==='pricesResult'){comparison=m.data;page='compare';}draw();return true;}
+ function receive(m){if(m.kind==='pricesSearchResult'&&typeof m.requestId==='string'&&m.requestId.startsWith('suggest-')){
+   if(m.requestId==='suggest-'+suggestSeq){
+    const prods=m.data?.products||[];
+    prods.forEach(p=>{if(p.token)suggestMap.set(p.token,p);if(p.id)suggestMap.set(p.id,p);});
+    suggestItems=prods;
+    renderSuggestions(prods);
+   }
+   return true;
+  }
+  const box=$('#price-suggestions');if(box)box.hidden=true;
+  if(m.kind==='pricesSettingsError'){pendingSettings=false;error=m.message;draw();return true;}if(m.kind==='pricesSettings'){config=m.settings||{accounts:{}};if(pendingSettings){pendingSettings=false;settingsDraft=null;error='';page=settingsBack;comparison=null;results=null;discovery=null;if(page==='compare'&&selected){refresh();return true;}}if(api.isOpen())draw();return true;}if(!m.kind.startsWith('prices'))return false;if(m.requestId!==expected||!api.isOpen())return true;busy=false;if(m.kind==='pricesError')error=m.message;else if(m.kind==='pricesSearchResult'){results={...m.data,url:m.url};page='search';}else if(m.kind==='pricesDiscovery'){discovery=m.data;results=null;page='search';}else if(m.kind==='pricesResult'){comparison=m.data;page='compare';}draw();return true;}
  function closed(){S().close?.();if(!api)return;pendingSettings=false;expected=String(++request);busy=false;api.send('pricesCancel');}
- document.addEventListener('submit',e=>{if(e.target.id==='price-search-form'){e.preventDefault();query=$('#price-query').value.trim();if($('#price-store'))source=$('#price-store').value;search();}if(e.target.id==='price-settings-form'){e.preventDefault();const accounts={};document.querySelectorAll('[data-price-country]').forEach(i=>{const s=i.dataset.priceCountry;accounts[s]={country:i.value.trim().toUpperCase(),currency:document.querySelector(`[data-price-currency="${s}"]`).value.trim().toUpperCase()};});expected=String(++request);busy=false;settingsDraft=accounts;pendingSettings=true;api.send('pricesSaveSettings',{accounts});}});
+ document.addEventListener('input',e=>{if(e.target.id==='price-query')handleSuggest(e.target.value);});
+ document.addEventListener('keydown',e=>{if(e.target.id==='price-query'&&e.key==='Escape'){const box=$('#price-suggestions');if(box)box.hidden=true;}});
+ document.addEventListener('submit',e=>{const box=$('#price-suggestions');if(box)box.hidden=true;if(e.target.id==='price-search-form'){e.preventDefault();query=$('#price-query').value.trim();if($('#price-store'))source=$('#price-store').value;search();}if(e.target.id==='price-settings-form'){e.preventDefault();const accounts={};document.querySelectorAll('[data-price-country]').forEach(i=>{const s=i.dataset.priceCountry;accounts[s]={country:i.value.trim().toUpperCase(),currency:document.querySelector(`[data-price-currency="${s}"]`).value.trim().toUpperCase()};});expected=String(++request);busy=false;settingsDraft=accounts;pendingSettings=true;api.send('pricesSaveSettings',{accounts});}});
  document.addEventListener('change',e=>{if(e.target.id==='price-store'){query=$('#price-query').value;source=e.target.value;results=null;error='';discover(false);}if(e.target.id==='price-copy'){const g=copies.find(c=>c.id===e.target.value);if(g){selected={id:g.id,store:g.store,name:g.name,image:g.background||g.cover};refresh(false);}}});
- document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!api?.isOpen())return;const d=b.dataset;
+ document.addEventListener('click',e=>{
+   if(!e.target.closest('#price-search-form')){const box=$('#price-suggestions');if(box)box.hidden=true;}
+   const b=e.target.closest('button');if(!b||!api?.isOpen())return;const d=b.dataset;
+   if(d.priceSuggest){
+    const p=suggestMap.get(d.priceSuggest)||[...(results?.products||[]),...(discovery?.products||[]),...suggestItems].find(x=>(x.token||x.id)===d.priceSuggest);
+    const box=$('#price-suggestions');if(box)box.hidden=true;
+    if(p){selected=p;copies=[];page='compare';comparison=null;refresh(false);}
+    return;
+   }
   if(d.storeTab){storeTab=d.storeTab;draw();return;}
 
    if(d.dealFilter){dealFilter=d.dealFilter;draw();return;}
