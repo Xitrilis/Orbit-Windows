@@ -8,7 +8,7 @@ import zipfile
 APP = Path(__file__).resolve().parent.parent
 DEST = APP.parent
 OFFICIAL_RUNTIME = {"engine/" + row.split("  ", 1)[1] for row in (APP / "Notices/playnite-runtime.sha256").read_text().splitlines()}
-OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache", "Backup", "JITProfiles", "__pycache__"}
+OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache", "Backup", "JITProfiles", "__pycache__", "VoiceChanger"}
 
 def sha(path):
     h = hashlib.sha256()
@@ -21,7 +21,7 @@ def ship(path):
     rel = path.relative_to(APP)
     if rel.as_posix() in OFFICIAL_RUNTIME:
         return path.is_file()
-    return (path.is_file() and not path.name.lower().startswith("orbit-report-") and ".partial-" not in path.name.lower() and not any(s in OMIT or s.startswith(".") for s in rel.parts)
+    return (path.is_file() and rel.as_posix() != "VoiceChanger.exe" and not path.name.lower().startswith("orbit-report-") and ".partial-" not in path.name.lower() and not any(s in OMIT or s.startswith(".") for s in rel.parts)
             and path.suffix.lower() not in {".pdb", ".log", ".tmp", ".zip", ".pyc"} and rel.as_posix() not in
             {"engine/config.json", "engine/fullscreenConfig.json", "engine/windowPositions.json", "engine/safeStartup.flag", "Orbit-startup-report.txt"})
 
@@ -91,7 +91,8 @@ def archive(name, files, digests):
 
 if __name__ == "__main__":
     verify()
-    files = sorted(p for p in APP.rglob("*") if ship(p) and p.name != "SHA256SUMS.txt")
+    files = sorted((p for p in APP.rglob("*") if ship(p) and p.name != "SHA256SUMS.txt"),
+                   key=lambda p: p.relative_to(APP).as_posix())
     digests = {p: sha(p) for p in files}
     sums = APP / "SHA256SUMS.txt"
     sums.write_text("".join(digests[p] + "  " + p.relative_to(APP).as_posix() + "\n" for p in files))

@@ -29,3 +29,7 @@ node_modules/
 .vs/
 .idea/
 .vscode/
+
+# Unrelated local project files
+/VoiceChanger/
+/VoiceChanger.exe
