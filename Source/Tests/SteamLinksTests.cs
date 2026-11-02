@@ -1,0 +1,5 @@
+using System;using Orbit;
+class SteamLinksTests {
+ static int n;static void Test(bool v,string name){if(!v)throw new Exception(name);Console.WriteLine("PASS "+(++n)+" "+name);}
+ static void Main(){Test(SteamLinks.Allowed("steam://open/friends"),"friends");Test(SteamLinks.Allowed("steam://connect/192.168.1.10:27015"),"IPv4 server");Test(SteamLinks.Allowed("steam://connect/play.example.com:27015"),"domain server");Test(SteamLinks.Allowed("steam://connect/play.example.com:27015/password"),"server password");Test(SteamLinks.Allowed("steam://joinlobby/570/1234567890123456789/76561198000000000"),"lobby invitation");foreach(string s in new[]{"https://evil.com", "steam://open/console", "steam://connect/-evil.com:27015", "steam://connect/999.0.0.1:80", "steam://connect/1.2.3.4:0", "steam://connect/1.2.3.4:65536", "steam://connect/1.2.3.4:123\n", "steam://connect/play.example.com:27015/password?cmd=1", "steam://joinlobby/4294967296/1/1", "steam://joinlobby/1/18446744073709551616/1", "steam://joinlobby/1/2/3?evil=1", "steam://open/friends/../../foo", ""})Test(!SteamLinks.Allowed(s),"reject "+s);Console.WriteLine(n+" STEAM LINK CHECKS PASSED"); }
+}

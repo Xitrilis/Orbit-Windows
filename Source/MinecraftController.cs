@@ -10,22 +10,22 @@ using Newtonsoft.Json.Linq;
 using Forms=System.Windows.Forms;
 namespace Orbit {
  public sealed class MinecraftController {
-  readonly LocalDocument<MinecraftSettings> doc;readonly Func<Window> owner;readonly Action<object> send;readonly Action<Exception> fault;readonly Func<bool> exiting;
+  readonly MinecraftSettingsStore settingsStore;readonly Func<Window> owner;readonly Action<object> send;readonly Action<Exception> fault;readonly Func<bool> exiting;
   readonly Dictionary<string,MinecraftProfile> profiles=new Dictionary<string,MinecraftProfile>();readonly Dictionary<string,MinecraftPack> packs=new Dictionary<string,MinecraftPack>();
-  readonly Dictionary<string,DateTime> launches=new Dictionary<string,DateTime>();bool busy;int generation;
-  public MinecraftController(string dataDir,Func<Window> owner,Action<object> send,Action<Exception> fault,Func<bool> exiting){doc=new LocalDocument<MinecraftSettings>(Path.Combine(dataDir,"minecraft-settings.json"),65536,MinecraftFiles.ValidateSettings);this.owner=owner;this.send=send;this.fault=fault;this.exiting=exiting;}
+  readonly Dictionary<string,DateTime> launches=new Dictionary<string,DateTime>();bool busy;
+  public MinecraftController(string dataDir,Func<Window> owner,Action<object> send,Action<Exception> fault,Func<bool> exiting,MinecraftSettingsStore settingsStore=null){this.settingsStore=settingsStore??new MinecraftSettingsStore(dataDir);this.owner=owner;this.send=send;this.fault=fault;this.exiting=exiting;}
   static string Existing(params string[] values)=>values.FirstOrDefault(p=>File.Exists(p)||Directory.Exists(p))??"";
   static string Env(Environment.SpecialFolder f)=>Environment.GetFolderPath(f);
   static string Program64()=>Environment.GetEnvironmentVariable("ProgramW6432")??Env(Environment.SpecialFolder.ProgramFiles);
-  MinecraftSettings Settings(){var s=JsonConvert.DeserializeObject<MinecraftSettings>(JsonConvert.SerializeObject(doc.Value));
+  MinecraftSettings Settings(){var s=settingsStore.Snapshot();
    if(s.prismRoot.Length==0)s.prismRoot=Path.Combine(Env(Environment.SpecialFolder.ApplicationData),"PrismLauncher");
    if(s.curseRoot.Length==0)s.curseRoot=Existing(Path.Combine(Env(Environment.SpecialFolder.UserProfile),"curseforge","minecraft"),Path.Combine(Env(Environment.SpecialFolder.MyDocuments),"curseforge","minecraft"));
    if(s.prismExe.Length==0)s.prismExe=Existing(Path.Combine(Env(Environment.SpecialFolder.LocalApplicationData),"Programs","PrismLauncher","prismlauncher.exe"),Path.Combine(Program64(),"PrismLauncher","prismlauncher.exe"));
    if(s.radminExe.Length==0)s.radminExe=Existing(Path.Combine(Env(Environment.SpecialFolder.ProgramFilesX86),"Radmin VPN","RvRvpnGui.exe"),Path.Combine(Program64(),"Radmin VPN","RvRvpnGui.exe"));return s;
   }
   static bool Exe(string path,string name)=>!string.IsNullOrEmpty(path)&&Path.GetFileName(path).Equals(name,StringComparison.OrdinalIgnoreCase)&&File.Exists(path);
-  async Task State(string requestId){MinecraftSettings s;MinecraftScan scan;int gen;do{gen=generation;s=Settings();scan=await Task.Run(()=>MinecraftFiles.Scan(s));}while(gen!=generation&&!exiting());if(exiting())return;profiles.Clear();packs.Clear();foreach(var p in scan.profiles)profiles[p.id]=p;foreach(var p in scan.packs)packs[p.id]=p;
-   send(new{kind="mcState",requestId,settings=s,profiles=scan.profiles,packs=scan.packs,warnings=scan.warnings,warning=doc.Warning,readOnly=doc.ReadOnly,prismAvailable=Exe(s.prismExe,"prismlauncher.exe")&&!string.IsNullOrEmpty(s.prismRoot),radminAvailable=Exe(s.radminExe,"RvRvpnGui.exe")});
+  async Task State(string requestId){MinecraftSettings s;MinecraftScan scan;long gen;do{gen=settingsStore.Revision;s=Settings();scan=await Task.Run(()=>MinecraftFiles.Scan(s));}while(gen!=settingsStore.Revision&&!exiting());if(exiting())return;profiles.Clear();packs.Clear();foreach(var p in scan.profiles)profiles[p.id]=p;foreach(var p in scan.packs)packs[p.id]=p;
+   send(new{kind="mcState",requestId,settings=s,profiles=scan.profiles,packs=scan.packs,warnings=scan.warnings,warning=settingsStore.Warning,readOnly=settingsStore.ReadOnly,prismAvailable=Exe(s.prismExe,"prismlauncher.exe")&&!string.IsNullOrEmpty(s.prismRoot),radminAvailable=Exe(s.radminExe,"RvRvpnGui.exe")});
   }
   MinecraftProfile Profile(string id){MinecraftProfile p;if(id==null||!profiles.TryGetValue(id,out p))throw new MinecraftException("missing");return p.source=="prism"?MinecraftFiles.PrismProfile(p.path):MinecraftFiles.CurseProfile(p.path);}
   void Prism(string action=null,string value=null){var s=Settings();if(!Exe(s.prismExe,"prismlauncher.exe"))throw new MinecraftException("prism");var args=MinecraftFiles.PrismArguments(s.prismRoot,action,value);Process.Start(new ProcessStartInfo(s.prismExe,args){UseShellExecute=false,WorkingDirectory=Path.GetDirectoryName(s.prismExe)});}
@@ -38,10 +38,9 @@ namespace Orbit {
       var field=(string)m["field"];if(!new[]{"prismExe","prismRoot","curseRoot","packFolder","radminExe"}.Contains(field))throw new MinecraftException("settings");string path;
       if(field.EndsWith("Exe")){string name=field=="prismExe"?"prismlauncher.exe":"RvRvpnGui.exe";using(var d=new Forms.OpenFileDialog{Title="Выбери "+name,Filter=name+"|"+name,CheckFileExists=true,RestoreDirectory=true}){if(d.ShowDialog(new WindowOwner(owner()))!=Forms.DialogResult.OK){Done(requestId,null,true);return;}path=d.FileName;}if(!Exe(path,name))throw new MinecraftException("settings");}
       else using(var d=new Forms.FolderBrowserDialog{Description=field=="prismRoot"?"Папка данных Prism с prismlauncher.cfg и instances":"Выбери папку",ShowNewFolderButton=true}){if(d.ShowDialog(new WindowOwner(owner()))!=Forms.DialogResult.OK){Done(requestId,null,true);return;}path=d.SelectedPath;}
-      var s=Settings();typeof(MinecraftSettings).GetField(field).SetValue(s,path);if(field=="prismExe"&&File.Exists(Path.Combine(Path.GetDirectoryName(path),"prismlauncher.cfg")))s.prismRoot=Path.GetDirectoryName(path);
-      if(field=="prismExe"&&s.prismRoot.Length==0)s.prismRoot=Path.Combine(Env(Environment.SpecialFolder.ApplicationData),"PrismLauncher");doc.Save(s);generation++;await State(requestId);break;
+      settingsStore.Update(s=>{typeof(MinecraftSettings).GetField(field).SetValue(s,path);if(field=="prismExe"&&File.Exists(Path.Combine(Path.GetDirectoryName(path),"prismlauncher.cfg")))s.prismRoot=Path.GetDirectoryName(path);});await State(requestId);break;
      }
-     case "mcPreferences":{var s=Settings();if(m["askRadmin"]?.Type!=JTokenType.Boolean)throw new MinecraftException("settings");s.askRadmin=(bool)m["askRadmin"];doc.Save(s);generation++;await State(requestId);break;}
+     case "mcPreferences":{if(m["askRadmin"]?.Type!=JTokenType.Boolean)throw new MinecraftException("settings");settingsStore.Update(s=>s.askRadmin=(bool)m["askRadmin"]);await State(requestId);break;}
      case "mcOpenPrism":Prism();Done(requestId,"Prism открыт. Войди в Microsoft и проверь Java в настройках.");break;
      case "mcShow":{var p=Profile((string)m["id"]);if(p.source!="prism")throw new MinecraftException("prism");Prism("show",p.instanceId);Done(requestId);break;}
      case "mcLaunch":{var p=Profile((string)m["id"]);if(!p.launchable||p.source!="prism")throw new MinecraftException("prism");DateTime last;if(launches.TryGetValue(p.id,out last)&&DateTime.UtcNow-last<TimeSpan.FromSeconds(8))throw new MinecraftException("busy");Prism("launch",p.instanceId);launches[p.id]=DateTime.UtcNow;Done(requestId,"Команда запуска передана Prism.");break;}

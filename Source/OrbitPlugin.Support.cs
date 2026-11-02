@@ -29,7 +29,7 @@ namespace Orbit {
   async void SupportStatus(string requestId) {
    try {var events=await Task.Run(()=>DiagnosticsLog.Read(diagnosticLog.DirectoryPath));if(exiting)return;
    Send(new{kind="supportStatus",requestId,version=typeof(OrbitPlugin).Assembly.GetName().Version.ToString(),writable=diagnosticLog.Writable,
-    recent=events.Where(e=>e.name.Contains("failed")||e.name.Contains("warning")||e.name=="app.unhandled"||e.name=="ui.error").Reverse().Take(6).Select(e=>new{e.timeUtc,e.id,e.name,e.component})});
+    recent=events.Where(e=>e.name.Contains("failed")||e.name.Contains("warning")||e.name.EndsWith(".recovered",StringComparison.Ordinal)||e.name=="app.unhandled"||e.name=="ui.error").Reverse().Take(6).Select(e=>new{e.timeUtc,e.id,e.name,e.component})});
    }catch(Exception ex){diagnosticLog?.Record("report.failed",ex,"support");if(!exiting)Send(new{kind="supportError",requestId,message="Не удалось прочитать журнал. Повтори запрос."});}
   }
   async void ExportSupport(string requestId=null) {

@@ -59,11 +59,11 @@
     case'compare':if(active)api.compare(active,mine(active));break;
    }
   });
-  $('.home-search-tabs').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();setTab(tab==='mood'?'title':'mood');$('#home-'+tab+'-tab').focus();}});
+  $('.home-search-tabs').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();setTab(e.key==='Home'?'mood':e.key==='End'?'title':tab==='mood'?'title':'mood');$('#home-'+tab+'-tab').focus();}});
   document.addEventListener('error',e=>{if(e.target.tagName==='IMG'&&(e.target.closest('#home-view')||e.target.closest('[data-kind="home-detail"]')))e.target.hidden=true;},true);
  }
  function privacy(){$('#home-share-label').hidden=tab!=='mood';$('#home-privacy').textContent=tab==='title'?'Поиск по названиям в твоей библиотеке и Steam. Gemini не используется.':$('#home-share').checked?'После «Подобрать» запрос и названия, жанры и режимы до 300 твоих игр отправятся в Gemini. Ключ — из настроек Orbit AI.':'В Gemini отправятся только запрос и история этого диалога. Названия из библиотеки не передаются.';}
- function setTab(value){tab=value==='title'?'title':'mood';for(const t of ['mood','title']){const b=$('#home-'+t+'-tab');b.setAttribute('aria-selected',String(tab===t));b.tabIndex=tab===t?0:-1;}$('#home-search-panel').setAttribute('aria-labelledby','home-'+tab+'-tab');$('#home-query').placeholder=tab==='title'?'Например, Batman: Arkham Knight':'Хочется поиграть с девушкой вдвоём. Что-нибудь несложное, с головоломками…';$('#home-query-label').textContent=tab==='title'?'Введи название игры.':'Расскажи, чего хочется — Orbit подберёт варианты.';$('.home-examples').hidden=tab==='title';privacy();drawQuery();}
+ function setTab(value){if(busy)cancelQuery();tab=value==='title'?'title':'mood';for(const t of ['mood','title']){const b=$('#home-'+t+'-tab');b.setAttribute('aria-selected',String(tab===t));b.tabIndex=tab===t?0:-1;}$('#home-search-panel').setAttribute('aria-labelledby','home-'+tab+'-tab');$('#home-query').placeholder=tab==='title'?'Например, Batman: Arkham Knight':'Хочется поиграть с девушкой вдвоём. Что-нибудь несложное, с головоломками…';$('#home-query-label').textContent=tab==='title'?'Введи название игры.':'Расскажи, чего хочется — Orbit подберёт варианты.';$('.home-examples').hidden=tab==='title';privacy();drawQuery();}
  function focus(){$('#home-query').scrollIntoView({block:'center',behavior:document.documentElement.classList.contains('motion-off')||matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});$('#home-query').focus({preventScroll:true});}
  function load(force=false){if(feedBusy&&!force)return;loaded=true;feedBusy=true;feedError='';drawFeed();if(api.demo()){feedBusy=false;const games=api.groups().map(local);feed={deals:games.slice(0,4),popular:games.slice(4,8),releases:[],regionSet:false,calendar:{events:[],message:'Даты появятся из официального календаря Steam.'},message:'Демонстрация интерфейса: игры — примеры, актуальные цены и даты не загружены.'};drawFeed();return;}request('feed','homeLoad',{force});}
  function update(){const demo=api.demo();if(wasDemo!==demo){if(wasDemo!==null){for(const lane of ['feed','query','detail']){expected[lane]='reset-'+(++seq);api.send('homeCancel',{lane});}}wasDemo=demo;loaded=false;feed=null;feedBusy=false;results=[];chat=[];reply='';error='';busy=false;cards.clear();drawQuery();}if(api.isHome()&&!loaded)load();else drawFeed();}
@@ -71,19 +71,18 @@
   const allLibrary=api.groups().map(local);
   const recentList=allLibrary.filter(g=>(g.lastPlayed>0||g.playtime>0)).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)||(b.playtime||0)-(a.playtime||0));
   const choices=[...allLibrary].sort((a,b)=>Number(b.favorite)-Number(a.favorite)||Number(!b.playtime)-Number(!a.playtime));
-  choices.sort((a,b)=>Number(mine(b)?.favorite)-Number(mine(a)?.favorite));
   const dealsList=feed?.deals||[],releasesList=feed?.releases||[],popularList=feed?.popular||[];
   let pool=[],categoryLabel='ОТКРОЙ НОВЫЙ МИР',categorySubtitle='';
   if(featuredMode==='recent'){
-   pool=recentList.length?recentList:choices;
+   pool=recentList;
    categoryLabel='НЕДАВНО В ИГРЕ';
    categorySubtitle='Продолжай с того места, где остановился.';
   }else if(featuredMode==='deals'){
-   pool=dealsList.length?dealsList:choices;
+   pool=dealsList;
    categoryLabel='СЕЙЧАС СО СКИДКОЙ';
    categorySubtitle='Выгодное предложение витрины Steam.';
   }else if(featuredMode==='releases'){
-   pool=releasesList.length?releasesList:(popularList.length?popularList:choices);
+   pool=releasesList;
    categoryLabel='СВЕЖИЙ РЕЛИЗ';
    categorySubtitle='Новинка в каталоге Steam.';
   }else{
@@ -114,18 +113,26 @@
     categorySubtitle='Присмотрись к игре. Описание и предложения — в один клик.';
    }
   }
+  const emptyTitle=featuredMode==='recent'?'Пока без запусков':featuredMode==='deals'?'Проверим скидки?':featuredMode==='releases'?'Ждём новые миры':'Собери свою коллекцию';
+  const emptyNote=featuredMode==='recent'?'Запусти игру через Orbit — здесь появится последнее приключение.':featuredMode==='auto'?'Подключи магазины: игры и их обложки появятся здесь.':feedBusy?'Получаем данные Steam…':feedError||'Подтверждённых предложений пока нет. Обнови витрину или проверь регион.';
+  const emptyAction=['deals','releases'].includes(featuredMode)?'data-home="refresh"':'data-cmd="accounts"';
+  const emptyButton=['deals','releases'].includes(featuredMode)?'Обновить витрину':'Подключить магазины';
   const calendar=feed?.calendar,today=new Date().toLocaleDateString('sv-SE');
   const events=(calendar?.events||[]).filter(e=>e.end>=today).sort((a,b)=>a.start.localeCompare(b.start)).slice(0,3);
   const date=s=>{const d=new Date(s+'T12:00:00');return Number.isNaN(+d)?'':d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});};
-  patch($('#home-highlights'),`<section class="home-featured ${featured?'has-game':''}">${featured?image(featured.image||featured.cover,'home-featured-art'):''}<div class="home-orbits" aria-hidden="true"><i></i><i></i><i></i></div><div class="home-featured-copy"><div class="home-featured-nav"><button type="button" class="home-featured-tab ${featuredMode==='auto'?'active':''}" data-home-featured="auto">Интересное</button><button type="button" class="home-featured-tab ${featuredMode==='recent'?'active':''}" data-home-featured="recent">Недавно запускали</button><button type="button" class="home-featured-tab ${featuredMode==='deals'?'active':''}" data-home-featured="deals">Распродажа</button><button type="button" class="home-featured-tab ${featuredMode==='releases'?'active':''}" data-home-featured="releases">Новинки</button><button type="button" class="home-feature-shuffle" data-home="shuffle-featured" title="Показать другую игру">Другая игра ↻</button></div><p class="home-feature-label"><i></i>${featured?categoryLabel:'ТВОЁ ВРЕМЯ ИГРАТЬ'}</p><h2>${featured?esc(featured.name):'Твой следующий<br>мир — здесь.'}</h2><p>${featured?(categorySubtitle||(mine(featured)?'Уже в твоей коллекции. Осталось выбрать настроение.':'Присмотрись к игре. Описание и предложения — в один клик.')):'Вся коллекция, интересные игры и идеи для вечера — на одной орбите.'}</p><div><button class="primary" ${featured?`data-home-game="${esc(remember(featured).id)}"`:'data-home="focus"'}>${featured?'Открыть игру':'Найти свою игру'} <span>↗</span></button>${featured&&money(featured)?`<span class="home-feature-price">${money(featured)}<small>Steam · витрина</small></span>`:''}</div></div><span class="home-feature-number">01 / ORBIT</span></section>
+  patch($('#home-highlights'),`<section class="home-featured ${featured?'has-game':'home-featured-empty'}">${featured?image(featured.image||featured.cover,'home-featured-art'):''}<div class="home-orbits" aria-hidden="true"><i></i><i></i><i></i></div><div class="home-featured-copy"><div class="home-featured-nav"><button type="button" class="home-featured-tab ${featuredMode==='auto'?'active':''}" data-home-featured="auto">Интересное</button><button type="button" class="home-featured-tab ${featuredMode==='recent'?'active':''}" data-home-featured="recent">Недавно запускали</button><button type="button" class="home-featured-tab ${featuredMode==='deals'?'active':''}" data-home-featured="deals">Распродажа</button><button type="button" class="home-featured-tab ${featuredMode==='releases'?'active':''}" data-home-featured="releases">Новинки</button><button type="button" class="home-feature-shuffle" ${pool.length<2?'hidden':''} data-home="shuffle-featured" title="Показать другую игру">Другая игра ↻</button></div><p class="home-feature-label"><i></i>${featured?categoryLabel:'ТВОЁ ВРЕМЯ ИГРАТЬ'}</p><h2>${featured?esc(featured.name):esc(emptyTitle)}</h2><p>${featured?(categorySubtitle||(mine(featured)?'Уже в твоей коллекции. Осталось выбрать настроение.':'Присмотрись к игре. Описание и предложения — в один клик.')):esc(emptyNote)}</p><div><button class="primary" ${featured?`data-home-game="${esc(remember(featured).id)}"`:emptyAction}>${featured?'Открыть игру':emptyButton} <span>↗</span></button>${featured&&money(featured)?`<span class="home-feature-price">${money(featured)}<small>Steam · витрина</small></span>`:''}</div></div><span class="home-feature-number">01 / ORBIT</span></section>
    <section class="home-calendar"><div class="home-calendar-heading"><span>НА ГОРИЗОНТЕ</span><span>↗</span></div><h2>Ближайшие<br>распродажи</h2><div class="home-events">${events.length?events.map(e=>`<button data-home="prices" class="home-event"><span class="home-event-date">${date(e.start)}<small>${e.start<=today?(e.source==='epic'?'EPIC · СЕЙЧАС':'STEAM · СЕЙЧАС'):(e.source==='epic'?'EPIC':'STEAM')}</small></span><span><strong>${esc(e.name)}</strong><small>до ${date(e.end)}</small></span></button>`).join(''):`<p class="home-calendar-empty">${feedBusy?'Сверяем официальный календарь…':'Объявленные даты будут здесь. Открой магазин, чтобы проверить календарь.'}</p>`}</div><p class="home-calendar-note">${calendar?.cached?'Сохранённые даты · проверь анонс':'Календарь магазинов'}. Участие и цены отдельных игр пока не объявлены.</p></section>`);
+  $('#home-highlights').classList.toggle('no-calendar',!events.length&&!feedBusy);
   $('#home-for-you-note').textContent=choices.length?'Из твоей коллекции: избранные и игры, к которым можно вернуться. Для подбора по настроению напиши Orbit выше.':'Популярное в Steam. Подключи аккаунты, чтобы видеть здесь и свою коллекцию.';
   const forYouPool=choices.length?choices:popularList;
-  patch($('#home-for-you'),cycle(forYouPool,choicesOffset,4).map(card).join('')||((feedBusy||!api.initialLoaded?.())?skeleton():'<div class="home-empty-inline"><p>Твоя подборка появится здесь.</p><button class="secondary" data-cmd="accounts">Подключить магазины</button></div>'));
-  $('#home-region-note').textContent=feed?.message||'Загружаем предложения Steam…';
-  patch($('#home-deals'),cycle(dealsList,dealsOffset,4).map(card).join('')||((feedBusy||!api.initialLoaded?.())?skeleton():'<p class="home-empty-inline">Предложения не загрузились. Можно повторить запрос или открыть магазин.</p>'));
-  patch($('#home-releases'),cycle(releasesList,releasesOffset,4).map(card).join('')||((feedBusy||!api.initialLoaded?.())?skeleton():`<p class="home-empty-inline">${api.demo()?'Демонстрация: актуальные новинки не загружены.':'Сейчас нет подтверждённых новинок. Попробуй обновить витрину позже.'}</p>`));
-  patch($('#home-feed-note'),`<span>${esc(feedError||feed?.message||'Получаем каталог Steam…')}</span><button class="quiet" data-home="region">Регион и валюта</button>${feedError?'<button class="quiet" data-home="refresh">Повторить</button>':''}`);
+  $('#home-for-you').closest('.home-shelf').hidden=!forYouPool.length&&!feedBusy;
+  $('#home-releases').closest('.home-shelf').hidden=!releasesList.length&&!feedBusy;
+  for(const [action,list] of [['shuffle-for-you',forYouPool],['shuffle-deals',dealsList],['shuffle-releases',releasesList]]){const b=$('[data-home="'+action+'"]');if(b)b.hidden=list.length<=4;}
+  patch($('#home-for-you'),cycle(forYouPool,choicesOffset,4).map(card).join('')||((feedBusy||(!api.initialLoaded?.()&&!feedError))?skeleton():'<div class="home-empty-inline"><p>Твоя подборка появится здесь.</p><button class="secondary" data-cmd="accounts">Подключить магазины</button></div>'));
+  $('#home-region-note').textContent=feedError||feed?.message||(feedBusy?'Загружаем предложения Steam…':'Нет подтверждённых предложений.');
+  patch($('#home-deals'),cycle(dealsList,dealsOffset,4).map(card).join('')||((feedBusy||(!api.initialLoaded?.()&&!feedError))?skeleton():'<div class="home-empty-inline"><p>Предложения не загрузились.</p><button class="secondary" data-home="refresh">Повторить</button><button class="quiet" data-home="region">Проверить регион</button></div>'));
+  patch($('#home-releases'),cycle(releasesList,releasesOffset,4).map(card).join('')||((feedBusy||(!api.initialLoaded?.()&&!feedError))?skeleton():`<p class="home-empty-inline">${api.demo()?'Демонстрация: актуальные новинки не загружены.':'Сейчас нет подтверждённых новинок. Попробуй обновить витрину позже.'}</p>`));
+  patch($('#home-feed-note'),`<span>${esc(feedError||feed?.message||(feedBusy?'Получаем каталог Steam…':'Витрина пока пуста.'))}</span><button class="quiet" data-home="region">Регион и валюта</button>${feedError?'<button class="quiet" data-home="refresh">Повторить</button>':''}`);
  }
  function submit(){
   if(busy)return;const query=$('#home-query').value.trim();if(query.length<3||query.length>1200){error='Напиши хотя бы 3 символа.';drawQuery();return;}
@@ -151,7 +158,7 @@
  }
  function drawDetail(keep=true){
   if(!active)return;const g=active,own=mine(g);
-  api.modal('home-detail',`<div class="home-detail-hero">${image(g.image||g.cover)}<div><p class="eyebrow">${own?'ТВОЯ КОЛЛЕКЦИЯ':'КАТАЛОГ STEAM'}</p><h2 id="modal-title">${esc(g.name)}</h2></div></div><div class="modal-body home-detail-body"><div class="home-detail-actions">${own?'<button class="primary" data-home="library">Открыть в библиотеке ↗</button>':''}<button class="${own?'secondary':'primary'}" data-home="compare" ${!own&&!g.priceToken&&!api.demo()?'disabled':''}>Цены и распродажи ↗</button><span>${own?esc(stores[own.selected.store]):'Steam'}</span></div>
+  api.modal('home-detail',`<div class="home-detail-hero">${image(g.image||g.cover)}<div><p class="eyebrow">${own?'ТВОЯ КОЛЛЕКЦИЯ':'КАТАЛОГ STEAM'}</p><h2 id="modal-title" title="${esc(g.name)}">${esc(g.name)}</h2></div></div><div class="modal-body home-detail-body"><div class="home-detail-actions">${own?'<button class="primary" data-home="library">Открыть в библиотеке ↗</button>':''}<button class="${own?'secondary':'primary'}" data-home="compare" ${!own&&!g.priceToken&&!api.demo()?'disabled':''}>Цены и распродажи ↗</button><span>${own?esc(stores[own.selected.store]):'Steam'}</span></div>
    ${detailBusy?'<div class="home-status" role="status"><span class="home-spinner"></span><p>Получаем описание и способы игры…</p></div>':''}
    ${detailError?`<p class="home-error" role="alert">${esc(detailError)} <button class="quiet" data-home="detail-retry">Повторить</button></p>`:''}
    ${g.reason?`<div class="home-detail-reason"><b>✧ Почему предложил ИИ</b><p>${esc(g.reason)}</p></div>`:''}

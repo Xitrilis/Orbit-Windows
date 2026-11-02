@@ -1,0 +1,18 @@
+using System;using System.IO;using System.Linq;using System.Net.Http;using System.Collections.Concurrent;using System.Threading;using System.Threading.Tasks;using Newtonsoft.Json.Linq;using Orbit;
+class PriceControllerConcurrencyTests {
+ sealed class Handler:HttpMessageHandler {
+  public readonly ConcurrentDictionary<string,TaskCompletionSource<bool>> waits=new ConcurrentDictionary<string,TaskCompletionSource<bool>>();
+  protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage r,CancellationToken token){var url=Uri.UnescapeDataString(r.RequestUri.Query);var word=new[]{"mainquery","quickquery","suggestold","suggestnew","cancelmain","cancelquick","cancelsuggest"}.First(s=>url.Contains(s));var entry=waits.GetOrAdd(word,_=>new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));await entry.Task.WaitAsync(token);return new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent("{\"items\":[]}")};}
+ }
+ static void Yes(bool v,string message){if(!v)throw new Exception(message);Console.WriteLine("PASS "+message);}
+ static async Task Wait(Func<bool> condition){for(int i=0;i<100&&!condition();i++)await Task.Delay(20);if(!condition())throw new Exception("Timed out waiting for test operation");}
+ static JObject Query(string id,string q)=>new JObject{["kind"]="pricesSearch",["requestId"]=id,["store"]="steam",["query"]=q};
+ static async Task Main(){string dir=Path.Combine(Path.GetTempPath(),"Orbit-price-"+Guid.NewGuid());Directory.CreateDirectory(dir);try{File.WriteAllText(Path.Combine(dir,"price-settings.json"),"{\"accounts\":{\"steam\":{\"country\":\"RU\",\"currency\":\"RUB\"}},\"funpaySections\":{}}");var h=new Handler();var messages=new ConcurrentQueue<JObject>();using(var c=new PriceController(dir,id=>null,o=>messages.Enqueue(JObject.FromObject(o)),h)){
+  c.Handle(Query("1","mainquery"));await Wait(()=>h.waits.ContainsKey("mainquery"));c.Handle(Query("qs-1","quickquery"));await Wait(()=>h.waits.ContainsKey("quickquery"));c.Handle(Query("suggest-1","suggestold"));await Wait(()=>h.waits.ContainsKey("suggestold"));
+  c.Handle(Query("suggest-2","suggestnew"));await Wait(()=>h.waits.ContainsKey("suggestnew"));h.waits["suggestold"].TrySetResult(true);h.waits["suggestnew"].TrySetResult(true);h.waits["quickquery"].TrySetResult(true);h.waits["mainquery"].TrySetResult(true);
+  await Wait(()=>messages.Count>=3);var arr=messages.ToArray();Yes(arr.Any(x=>(string)x["requestId"]=="1"&&(string)x["kind"]=="pricesSearchResult"),"main price request survives suggestions");Yes(arr.Any(x=>(string)x["requestId"]=="qs-1"&&(string)x["kind"]=="pricesSearchResult"),"quick search stays independent");Yes(arr.Any(x=>(string)x["requestId"]=="suggest-2"&&(string)x["kind"]=="pricesSearchResult"),"latest suggestion returned");Yes(!arr.Any(x=>(string)x["requestId"]=="suggest-1"),"stale suggestion cancelled");
+  c.Handle(Query("2","cancelmain"));c.Handle(Query("qs-2","cancelquick"));c.Handle(Query("suggest-3","cancelsuggest"));await Wait(()=>h.waits.ContainsKey("cancelsuggest"));
+  c.Handle(new JObject{["kind"]="pricesCancel",["lane"]="suggest"});h.waits["cancelsuggest"].TrySetResult(true);h.waits["cancelmain"].TrySetResult(true);h.waits["cancelquick"].TrySetResult(true);await Wait(()=>messages.Count>=5);arr=messages.ToArray();Yes(arr.Any(x=>(string)x["requestId"]=="2"),"closing suggestions preserves main query");Yes(arr.Any(x=>(string)x["requestId"]=="qs-2"),"closing suggestions preserves quick search");Yes(!arr.Any(x=>(string)x["requestId"]=="suggest-3"),"explicit suggestion cancellation suppresses late response");
+
+ }}finally{Directory.Delete(dir,true);}}
+}

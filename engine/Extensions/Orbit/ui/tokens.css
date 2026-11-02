@@ -1,0 +1,58 @@
+/* Orbit design tokens — the single source of truth for colour, type, shape and motion.
+   Every other stylesheet reads these; nothing else defines :root variables. */
+:root{
+  color-scheme:dark;
+  /* surfaces */
+  --bg:#202329;            /* app background */
+  --sidebar-bg:#191c21;    /* navigation rail */
+  --panel:#292d34;         /* cards, inputs */
+  --panel-2:#303641;       /* hover / raised */
+  --panel-3:#354257;       /* selected */
+  --line:#ffffff16;
+  --line-strong:#ffffff2a;
+  /* text */
+  --text:#edf0f4;
+  --text-2:#cbd1db;
+  --muted:#abb3bf;
+  --muted-2:#8f98a6;       /* weakest text that still passes 4.5:1 on --bg */
+  /* accent (one only) */
+  --accent:#a9b4ff;
+  --accent-rgb:169,180,255;
+  --accent-strong:#8a98ff;
+  --on-accent:#10142a;
+  /* status */
+  --ok:#8fd3a8;--warn:#e0c27a;--danger:#ef9a92;--gold:var(--warn);--red:var(--danger);
+  /* legacy aliases so older rules keep working */
+  --mint:var(--accent);
+  /* type scale */
+  --fs-xs:11px;--fs-sm:12px;--fs-md:13px;--fs-lg:16px;--fs-xl:20px;--fs-2xl:28px;
+  --font:'Segoe UI Variable Text','Segoe UI',Inter,Arial,sans-serif;
+  /* shape */
+  --r-sm:6px;--r-md:10px;--r-lg:16px;--r-xl:22px;--r-2xl:28px;
+  --space:4px;
+  /* layout */
+  --sidebar:216px;
+  /* motion */
+  --ease:cubic-bezier(.2,.75,.25,1);--t-fast:.12s;--t:.18s;
+  --shadow:0 24px 64px #0009;
+  /* materials */
+  --canvas:#0b0d15;
+  --glass:rgba(255,255,255,.06);--glass-2:rgba(255,255,255,.10);--glass-border:rgba(255,255,255,.12);
+  --glass-dark:rgba(16,18,28,.62);--ai-surface:#12152a;
+  --blur:blur(28px) saturate(1.6);
+  /* ambient glow (set per theme) */
+  --amb-a-rgb:122,92,255;--amb-b-rgb:255,111,183;--amb-c-rgb:63,168,255;
+  /* Apple-Intelligence gradient */
+  --ai-gradient:linear-gradient(120deg,#bc82f3,#8d9fff,#aa6eee,#f5b9ea,#ff6778,#ffba71);
+  /* motion */
+  --smooth:cubic-bezier(.22,1,.36,1);--spring:cubic-bezier(.34,1.45,.64,1);
+  font-family:var(--font);font-size:13px;
+}
+@media(max-width:1100px){:root{--sidebar:192px}}
+@media(max-width:900px){:root{--sidebar:172px}}
+
+/* ── themes ── pick with <html data-theme="…"> ── */
+[data-theme="aurora"]{}
+[data-theme="ocean"]{--accent:#7fd8ff;--accent-rgb:127,216,255;--accent-strong:#4cc2f5;--on-accent:#06202e;--canvas:#071017;--amb-a-rgb:32,128,255;--amb-b-rgb:20,210,200;--amb-c-rgb:110,90,255;--ai-surface:#0d1a26}
+[data-theme="sunset"]{--accent:#ffb08f;--accent-rgb:255,176,143;--accent-strong:#ff9266;--on-accent:#2c1208;--canvas:#120b0e;--amb-a-rgb:255,120,80;--amb-b-rgb:255,80,150;--amb-c-rgb:160,90,255;--ai-surface:#1d1119}
+[data-theme="graphite"]{--accent:#86b7ec;--accent-rgb:134,183,236;--accent-strong:#5f9be0;--on-accent:#0f1b2b;--canvas:#16181d;--amb-a-rgb:90,110,150;--amb-b-rgb:70,80,100;--amb-c-rgb:60,90,130;--ai-surface:#191c24}

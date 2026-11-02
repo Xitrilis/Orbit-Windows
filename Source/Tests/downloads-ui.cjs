@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
   page.on('pageerror',e=>errors.push(String(e)));
   await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>window.sent.push(JSON.parse(s))};});
-  await page.goto(file);
+  await page.goto(file);await page.evaluate(()=>{if(window.Orbit&&window.CefSharp?.PostMessage&&!location.search.includes('demo=1'))Orbit.receive({kind:'snapshot',data:{games:[],prefs:{},stores:[],downloads:[],notifications:[]}});});if(await page.locator('#app-splash').count())await page.waitForSelector('#app-splash',{state:'detached'});
   const receive=m=>page.evaluate(m=>Orbit.receive(m),m),last=kind=>page.evaluate(k=>sent.filter(m=>m.kind===k).at(-1),kind);
   const data=await page.evaluate(()=>OrbitDemo()),now=Date.now()/1000;
   data.downloads[0].id='steam-job';data.downloads[0].metrics.source='Steam · локальные данные';
@@ -48,9 +48,11 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
   data.downloads[0].state='complete';await receive({kind:'downloads',jobs:data.downloads});
   await page.locator('#dl-play').click();assert.deepEqual(await last('play'),{kind:'play',id:'demo-1'});
   await page.locator('#dl-dismiss').click();assert.deepEqual(await last('dismissJob'),{kind:'dismissJob',id:'steam-job'});
+  data.downloads[0].state='attention';await receive({kind:'downloads',jobs:data.downloads});assert.equal(await page.locator('#dl-dismiss').isVisible(),true);await page.locator('#dl-dismiss').click();assert.deepEqual(await last('dismissJob'),{kind:'dismissJob',id:'steam-job'});
   data.downloads[0].state='handed';data.downloads[0].name='<img src=x onerror=alert(1)>';
   data.downloads[0].metrics={phase:'downloading',percent:30,speed:1e6,history:[{at:now-15,speed:1e6},{at:now-12,speed:2e6},{at:now-9,speed:null},{at:now-6,speed:1e6},{at:now-3,speed:2e6}]};
   await receive({kind:'downloads',jobs:data.downloads});
+  assert.equal(await page.locator('#dl-dismiss').isVisible(),true);
   assert.equal(await page.locator('#dl-name img,.dl-queue-name img').count(),0,'Remote metadata must stay text');
   assert.equal((await page.locator('#dl-line').getAttribute('d')).split('M').length-1,2,'Graph must break at unknown sample');
   await page.keyboard.press('Escape');await page.locator('#download-view').waitFor({state:'hidden'});
@@ -80,7 +82,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
   const dock=await demo.locator('.download-dock-button').boundingBox();assert.ok(dock.y+dock.height<=640&&dock.x+dock.width<=880);
   await demo.locator('#dl-client').click();assert.equal(await demo.evaluate(()=>sent.length),0,'Demo must not call native store');
   await demo.locator('.download-dock-button').click();await demo.locator('#download-view').waitFor({state:'hidden'});
-  await demo.locator('.nav-item[data-cmd="accounts"]:not(.nav-add-store)').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-accounts-small.png')});
+  await demo.locator('.sidebar-bottom .nav-item[data-cmd="accounts"]').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-accounts-small.png')});
   const close=await demo.locator('.modal-close').boundingBox();assert.ok(close.x+close.width<=880&&close.y>=0);
   await demo.locator('.modal-close').click();await demo.locator('#modal-backdrop').waitFor({state:'hidden'});
   await demo.locator('[data-cmd="settings"]').click();await demo.waitForTimeout(300);await demo.screenshot({path:path.join(root,'qa/Orbit-settings-small.png')});

@@ -1,0 +1,37 @@
+/* Audit 0.15: content boundaries, actionable empty states and calmer motion. */
+.active-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px}
+.active-filters button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--line);border-radius:20px;padding:6px 11px;color:var(--muted);background:var(--panel)}
+.active-filters button span{margin-left:8px;color:var(--text)}
+#home-view .home-featured-empty{min-height:220px;box-shadow:none}
+#home-view .home-featured-empty h2{font-size:30px}
+#home-view .home-featured.home-featured-empty .home-featured-copy>p:not(.home-feature-label){display:block;max-width:520px;line-height:1.65;color:var(--muted)}
+#home-view .home-empty-inline{grid-column:1/-1;width:100%;min-width:0}
+#home-view .home-empty-inline p{margin-bottom:16px}
+#home-view .home-empty-inline button{margin-right:8px;margin-bottom:8px}
+.home-card-copy strong,.home-description,.rv-status,#friends-result,.intro{overflow-wrap:anywhere}
+.description-empty{color:var(--muted);font-size:13px}
+.detail-hero{height:auto;min-height:240px;display:flex;align-items:flex-end}
+.detail-hero>div{position:relative;left:auto;right:auto;bottom:auto;min-width:0;width:100%;padding:64px 62px 22px 30px}
+.detail-name{min-width:0}
+.detail-name h2,.home-detail-head h2{min-width:0;overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
+.detail-favorite.on{color:var(--accent)}
+.detail-favorite.on svg{fill:currentColor}
+#install-status{border-left:2px solid var(--accent);padding:10px 14px;background:var(--panel);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+#install-status:empty{display:none}
+.install-loading-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.home-featured-nav{flex-wrap:wrap}
+#modal,#modal-backdrop{animation:none}
+.poster:hover{transform:translateY(-3px) scale(1.015)}
+.home-discover::before{opacity:.48;animation-duration:30s}
+.home-submit{animation:none;box-shadow:0 3px 14px color-mix(in srgb,var(--accent) 14%,transparent)}
+.primary{box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 12%,transparent)}
+.effects-lite body::before{animation:none!important;will-change:auto;inset:0;opacity:.35}
+.effects-lite *,.effects-lite *::before,.effects-lite *::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:none!important;filter:none!important}
+.effects-lite .home-discover::before,.effects-lite .home-featured::before,.effects-lite .ai-nav::before{animation:none!important;opacity:.25}
+.effects-lite aside,.effects-lite #download-dock,.effects-lite #popover,.effects-lite #toast,.effects-lite #modal,.effects-lite .quick-search-box{background:var(--bg,#15151f)}
+.effects-lite #modal-backdrop,.effects-lite .quick-search-backdrop{background:#080911d9}
+.effects-lite .poster:hover{transform:translateY(-2px)}
+@media(max-width:1000px){.toolbar{flex-wrap:wrap;gap:12px}.view-tools{margin-left:auto}.detail-actions{gap:8px;flex-wrap:wrap}#home-view .home-featured-empty{padding:24px}#home-view .home-featured-empty h2{font-size:26px}.home-featured-tabs{flex-wrap:wrap}.setting>div{min-width:0}}
+@media(max-width:900px){.theme-setting{align-items:flex-start;flex-direction:column;gap:16px}.home-shelf-head{flex-wrap:wrap;gap:10px}}
+
+.ui-health-notice{z-index:10010}

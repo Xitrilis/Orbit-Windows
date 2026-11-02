@@ -72,12 +72,9 @@ namespace Orbit
         public static WalletRates ParseRates(string html, string script)
         {
             // Guard the observed public calculator formula. Changed scripts fail closed.
-            var s = script ?? "";
-            if (!Regex.IsMatch(s, @"Math\.ceil\(\s*e\s*\+\s*s\s*\)") ||
-                !Regex.IsMatch(s, @"o\s*=\s*e\s*\*\s*\(window\.serviceFee\|\|0\)\s*,\s*i\s*=\s*e\s*\*\s*window\.payFee\s*,\s*s\s*=\s*o\s*\+\s*i") ||
-                !Regex.IsMatch(s, @"Math\.ceil\(\s*o\s*/\s*window\.steamRate\s*\*\s*100\s*\)\s*/\s*100") ||
-                !Regex.IsMatch(s, @"Math\.round\(\s*i\s*\*\s*window\.steamRateKzt\s*\)") ||
-                !Regex.IsMatch(s, @"Math\.round\(\s*i\s*\*\s*window\.steamRate\s*\*\s*100\s*\)\s*/\s*100"))
+            if (!script.Contains("Math.ceil(e+s)") || !script.Contains("o=e*(window.serviceFee||0),i=e*window.payFee,s=o+i") ||
+                !script.Contains("Math.ceil(o/window.steamRate*100)/100") || !script.Contains("Math.round(i*window.steamRateKzt)") ||
+                !script.Contains("Math.round(i*window.steamRate*100)/100"))
                 throw new InvalidOperationException("Калькулятор сервиса обновился. Открой сайт для точной суммы.");
             if (!Regex.IsMatch(html, @"window\.steamCurrency\s*=\s*['""]USD['""]\s*;")) throw new InvalidOperationException("Изменилась валюта расчёта сервиса.");
             var doc = new HtmlParser().Parse(html);

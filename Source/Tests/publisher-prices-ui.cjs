@@ -1,0 +1,35 @@
+const {chromium}=require('playwright');
+const path=require('node:path'),fs=require('node:fs'),assert=require('node:assert/strict'),{pathToFileURL}=require('node:url');
+const root=path.resolve(__dirname,'../..');
+(async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.ORBIT_CHROME_PATH,args:['--no-sandbox']});try{
+ const page=await browser.newPage({viewport:{width:1360,height:880}}),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>sent.push(JSON.parse(s))};});
+ await page.goto(pathToFileURL(path.join(root,'engine/Extensions/Orbit/ui/index.html')).href);
+ const receive=m=>page.evaluate(m=>Orbit.receive(m),m),last=k=>page.evaluate(k=>sent.filter(m=>m.kind===k).at(-1),k);
+ await receive({kind:'snapshot',data:{games:[],prefs:{},stores:[],downloads:[],notifications:[]}});await page.waitForSelector('#app-splash',{state:'detached'});
+ await page.locator('[data-cmd="prices"]').click();const config={accounts:{steam:{country:'KZ'},ea:{country:'US'},ubisoft:{country:'DE'}},funpaySections:{}};
+ await receive({kind:'pricesSettings',settings:config,automaticStores:['steam','epic','gog','ea','ubisoft']});await page.locator('#price-store').selectOption('ea');
+ await receive({kind:'pricesDiscovery',requestId:(await last('pricesDiscover')).requestId,data:{store:'ea',country:'US',status:'unsupported',message:'Поиск изданий доступен. Подборка скидок пока не подключена.',products:[],calendar:{events:[]}}});
+ assert.match(await page.locator('.sale-featured').innerText(),/Каталог EA app/);await page.locator('[data-price="focusSearch"]').click();assert.equal(await page.locator('#price-query').evaluate(e=>e===document.activeElement),true);
+ await page.locator('#price-query').fill('It Takes Two');await page.locator('#price-search-form .primary').click();const eaReq=await last('pricesSearch');assert.equal(eaReq.store,'ea');
+ const eaOffer={source:'ea',official:true,name:'It Takes Two',amount:39.99,originalAmount:39.99,currency:'USD',country:'US',rub:3500,kzt:20000,checkedAt:'2026-11-01T12:00:00Z'};
+ const eaProduct={store:'ea',token:'ea-full',id:'Origin.OFR.full',catalogNamespace:'it-takes-two',name:'It Takes Two',productType:'PC · Standard Edition',preview:eaOffer};
+ await receive({kind:'pricesSearchResult',requestId:eaReq.requestId,url:'https://store.ea.com/commerce/app/products?search=It%20Takes%20Two',data:{store:'ea',country:'US',message:'Выбери точное PC-издание.',products:[eaProduct]}});
+ assert.match(await page.locator('.price-product-native').innerText(),/39,99/);assert.doesNotMatch(await page.locator('.price-product').innerText(),/Бесплатно|Trial/);
+ await page.locator('[data-price-product="ea-full"]').click();assert.equal((await last('pricesCompare')).token,'ea-full');
+ await receive({kind:'pricesResult',requestId:(await last('pricesCompare')).requestId,data:{store:'ea',name:'It Takes Two',country:'US',sources:[{source:'ea',status:'ok',offers:[eaOffer],url:'https://store.ea.com/commerce/app/products/it-takes-two'},{source:'funpay',offers:[]},{source:'plati',offers:[]}],calendar:{events:[]}}});
+ await page.locator('[data-price="findEdition"]').click();const stale=await last('pricesSearch');await page.locator('#price-store').selectOption('ubisoft');await receive({kind:'pricesSearchResult',requestId:stale.requestId,data:{store:'ea',products:[eaProduct]}});
+ assert.equal(await page.locator('#price-store').inputValue(),'ubisoft');assert.equal(await page.locator('[data-price-product="ea-full"]').count(),0);
+ await page.locator('#price-query').fill('Odyssey');await page.locator('#price-search-form .primary').click();
+ const ubOffer={...eaOffer,source:'ubisoft',name:"Assassin's Creed Odyssey",amount:59.99,currency:'EUR',country:'DE'},ubProduct={store:'ubisoft',token:'ubi-full',id:'5afda5f888a7e34d25b50149',name:ubOffer.name,productType:'PC · Standard Edition',preview:ubOffer};
+ await receive({kind:'pricesSearchResult',requestId:(await last('pricesSearch')).requestId,data:{store:'ubisoft',country:'DE',message:'PC-издание подтверждено.',products:[ubProduct]}});assert.match(await page.locator('.price-product-native').innerText(),/59,99.*€/);
+ await page.locator('[data-price="settings"]').first().click();assert.match(await page.locator('.price-account-row').filter({has:page.locator('[data-price-country="ea"]')}).innerText(),/Публичная витрина/);assert.doesNotMatch(await page.locator('.price-account-row').filter({has:page.locator('[data-price-country="ubisoft"]')}).innerText(),/пока не подключены/);
+ await page.locator('[data-price="settingsBack"]').click();config.accounts.ubisoft.country='KZ';await receive({kind:'pricesSettings',settings:config});await page.locator('#price-query').fill('Odyssey');await page.locator('#price-search-form .primary').click();
+ const noPrice={...ubProduct,preview:null,priceMessage:'Магазин ответил для SK, запрошено KZ. Цена этого региона не подставляется. <img src=x>'};
+ await receive({kind:'pricesSearchResult',requestId:(await last('pricesSearch')).requestId,data:{store:'ubisoft',country:'KZ',message:noPrice.priceMessage,products:[noPrice]}});
+ assert.match(await page.locator('.price-catalog-note').innerText(),/SK.*KZ/);assert.match(await page.locator('.price-product-note').innerText(),/KZ/);assert.equal(await page.locator('.price-catalog-note img,.price-product-note img').count(),0);assert.doesNotMatch(await page.locator('.price-product-native').innerText(),/59,99|Бесплатно/);
+ for(const [width,height] of [[880,640],[1360,880],[2560,1440]]){await page.setViewportSize({width,height});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth&&document.querySelector('#modal').scrollWidth<=document.querySelector('#modal').clientWidth),true);}
+ await page.setViewportSize({width:1360,height:880});fs.mkdirSync(path.join(root,'qa'),{recursive:true});await page.screenshot({path:path.join(root,'qa/publisher-region-warning.png')});
+ await page.locator('#price-search-form .primary').click();await receive({kind:'pricesError',requestId:(await last('pricesSearch')).requestId,message:'Источник ограничил частоту запросов. Попробуй позже.'});assert.match(await page.locator('.price-error').innerText(),/частоту запросов/);
+ assert.deepEqual(errors,[]);assert.equal(await page.locator('#ui-health-notice').count(),0);console.log('Publisher UI passed: EA/Ubisoft catalogue, exact token, region versus zero, safe warnings, edition lookup, late responses, provider failure, capability labels and three sizes');
+ }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

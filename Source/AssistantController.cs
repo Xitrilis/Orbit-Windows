@@ -24,6 +24,8 @@ namespace Orbit
         readonly Func<List<GameContext>> games;
         readonly Action<string> openClient;
         readonly Action<object> notifyMain;
+        readonly Func<GameContext,Task<string>> readHorizonState;
+        string horizonState=""; bool readingHorizonState;
         readonly GeminiClient gemini = new GeminiClient();
         readonly List<AiTurn> history = new List<AiTurn>();
         readonly List<AiModel> models = new List<AiModel>();
@@ -40,9 +42,9 @@ namespace Orbit
         string pendingQuestion = "";
         bool noSpoilers = true, busy, scanning, connecting, disposed;
         int epoch;
-        public AssistantController(string folder, string dataDir, Func<List<GameContext>> games, Action<string> openClient, Action<object> notifyMain)
+        public AssistantController(string folder, string dataDir, Func<List<GameContext>> games, Action<string> openClient, Action<object> notifyMain, Func<GameContext,Task<string>> readHorizonState = null)
         {
-            this.folder = folder; this.dataDir = dataDir; this.games = games; this.openClient = openClient; this.notifyMain = notifyMain;
+            this.folder = folder; this.dataDir = dataDir; this.games = games; this.openClient = openClient; this.notifyMain = notifyMain; this.readHorizonState = readHorizonState;
             try { var c = JObject.Parse(File.ReadAllText(Path.Combine(dataDir, "ai-settings.json"))); model = (string)c["model"] ?? ""; shortcut = (string)c["shortcut"] ?? shortcut; noSpoilers = (bool?)c["noSpoilers"] ?? true; } catch { }
             var file = Path.Combine(dataDir, "ai-key.bin");
             if (File.Exists(file)) try { key = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(file), null, DataProtectionScope.CurrentUser)); }
@@ -74,12 +76,12 @@ namespace Orbit
         {
             if (host != null) return;
             host = new AssistantHost(folder); host.Command += Handle;
-            host.Hidden += () => { frame = null; Push(); if (gameWindow != IntPtr.Zero) GameCapture.SetForegroundWindow(gameWindow); };
+            host.Hidden += () => { frame = null; horizonState = ""; Push(); if (gameWindow != IntPtr.Zero) GameCapture.SetForegroundWindow(gameWindow); };
         }
         void Select(GameContext game)
         {
             if (game?.id == selected?.id) { selected = game; return; }
-            Cancel(); selected = game; frame = null; diagnostic = null; history.Clear(); pendingQuestion = ""; gameWindow = IntPtr.Zero; notice = "";
+            Cancel(); selected = game; frame = null; diagnostic = null; horizonState=""; history.Clear(); pendingQuestion = ""; gameWindow = IntPtr.Zero; notice = "";
         }
         public void Open(string id = null, bool diagnostics = false, bool settings = false)
         {
@@ -120,7 +122,8 @@ namespace Orbit
         void Push()
         {
             if (disposed || host == null) return;
-            host.Send(new { kind = "state", selected, games = games().Select(g => new { g.id, g.name, g.store, g.installed }).ToArray(),
+            var visibleGames=games(); if(selected?.id=="orbit-horizon" && !visibleGames.Any(g=>g.id==selected.id))visibleGames.Add(selected);
+            host.Send(new { kind = "state", selected, horizonState, readingHorizonState, games = visibleGames.Select(g => new { g.id, g.name, g.store, g.installed }).ToArray(),
                 settings = new { hasKey = !string.IsNullOrWhiteSpace(key), model, shortcut, noSpoilers, hotkeyStatus }, models = models.ToArray(),
                 history = history.ToArray(), busy, scanning, connecting, pendingQuestion, diagnostic, notice,
                 frame = frame == null ? null : new { url = "data:image/jpeg;base64," + Convert.ToBase64String(frame.bytes), frame.width, frame.height, frame.capturedAt } });
@@ -132,9 +135,10 @@ namespace Orbit
                 switch ((string)message["kind"])
                 {
                     case "selectGame": Select(games().FirstOrDefault(g => g.id == (string)message["id"])); Push(); break;
-                    case "ask": Ask((string)message["question"], (bool?)message["includeFrame"] == true, (bool?)message["includeDiagnostics"] == true); break;
+                    case "ask": Ask((string)message["question"], (bool?)message["includeFrame"] == true, (bool?)message["includeDiagnostics"] == true, (bool?)message["includeHorizonState"] == true); break;
+                    case "horizonState": ReadHorizonState(); break;
                     case "cancel": Cancel(); notice = "Запрос остановлен. Уже отправленные данные не отзываются у Gemini."; Push(); break;
-                    case "clearChat": Cancel(); history.Clear(); frame = null; notice = "Диалог и кадр очищены из памяти Orbit."; Push(); break;
+                    case "clearChat": Cancel(); history.Clear(); frame = null; horizonState=""; notice = "Диалог, кадр и состояние очищены из памяти Orbit."; Push(); break;
                     case "removeFrame": frame = null; notice = "Кадр убран. Следующий вопрос отправится без него."; Push(); break;
                     case "recapture": notice = "Вернись в игру и снова нажми горячую клавишу — так в кадр не попадёт панель помощника."; host.Hide(); break;
                     case "saveSettings": SaveSettings(message); break;
@@ -179,7 +183,7 @@ namespace Orbit
                     var result = await gemini.Models(key, connection.Token);
                     if (disposed || string.IsNullOrWhiteSpace(key)) return;
                     models.Clear(); models.AddRange(result);
-                    if (model.Length == 0 || model.Contains("omni")) model = models.Where(mo => !mo.id.Contains("omni")).OrderBy(mo => mo.id.Contains("preview") || mo.id.Contains("exp")).ThenByDescending(mo => mo.id.Contains("flash")).ThenByDescending(mo => mo.id, StringComparer.Ordinal).FirstOrDefault()?.id ?? "gemini-2.5-flash";
+                    if (model.Length == 0) model = models.OrderBy(mo => mo.id.Contains("preview") || mo.id.Contains("exp")).ThenByDescending(mo => mo.id.Contains("flash")).ThenByDescending(mo => mo.id, StringComparer.Ordinal).FirstOrDefault()?.id ?? "";
                     SaveConfig(); notice = models.Count > 0 ? "Ключ принят. Выбери модель для вопросов и снимков. Генерация ответа расходует квоту Gemini API." : "Ключ принят, но подходящих моделей не найдено.";
                 }
                 else notice = "Настройки сохранены. Ключ хранится с защитой твоей учётной записи Windows.";
@@ -190,7 +194,14 @@ namespace Orbit
             finally { connecting = false; Push(); }
         }
         void SaveConfig() { Write(Path.Combine(dataDir, "ai-settings.json"), JsonConvert.SerializeObject(new { model, shortcut, noSpoilers })); }
-        async void Ask(string question, bool includeFrame, bool includeDiagnostics)
+        async void ReadHorizonState(){
+            if(readingHorizonState||selected?.id!="orbit-horizon"||readHorizonState==null)return;
+            var game=selected;readingHorizonState=true;horizonState="";notice="Читаем состояние Horizon на этом ПК…";Push();
+            try{var value=await readHorizonState(game);if(selected?.id==game.id && host?.Visible==true){horizonState=value;notice="Состояние готово. Посмотри его перед отправкой в Gemini.";}}
+            catch(Exception e){if(selected?.id==game.id)notice=e is InvalidOperationException?e.Message:"Не удалось прочитать состояние Horizon.";}
+            finally{readingHorizonState=false;Push();}
+        }
+        async void Ask(string question, bool includeFrame, bool includeDiagnostics, bool includeHorizonState)
         {
             if (busy) return;
             var turn = ++epoch; var requestGame = selected;
@@ -201,6 +212,7 @@ namespace Orbit
                 GeminiClient.ModelId(model);
                 var image = includeFrame ? frame?.bytes : null;
                 var report = includeDiagnostics ? diagnostic?.ToText() : null;
+                if(includeHorizonState){if(requestGame?.id!="orbit-horizon"||string.IsNullOrEmpty(horizonState))throw new InvalidOperationException("Состояние Horizon недоступно. Получи его ещё раз.");report=(report??"")+"\nСостояние Horizon, предоставленное игроком:\n"+horizonState;}
                 if (includeFrame && image == null) throw new InvalidOperationException("Кадр уже убран. Сделай новый снимок или отправь только вопрос.");
                 var body = GeminiClient.BuildRequest(requestGame?.name, requestGame?.store, question, history, image, report, noSpoilers);
                 request?.Dispose(); request = new CancellationTokenSource(); busy = true; pendingQuestion = question.Trim(); notice = ""; Push();

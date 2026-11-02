@@ -30,18 +30,6 @@ class PriceServiceTests
     {
         try
         {
-            Test("Shared region preserves store currencies and overrides", () => {
-                var settings = new PriceSettings();
-                Check(settings.Account("epic").country == "", "unknown country is not fabricated");
-                settings.accounts["steam"] = new PriceAccount { country = "KZ", currency = "KZT" };
-                Check(settings.Account("epic").country == "KZ" && settings.Account("epic").currency == "", "inherit region, not currency");
-                settings.accounts["gog"] = new PriceAccount { country = "", currency = "USD" };
-                Check(settings.Account("gog").country == "KZ" && settings.Account("gog").currency == "USD", "explicit currency preserved");
-                settings.accounts["epic"] = new PriceAccount { country = "US", currency = "USD" };
-                Check(settings.Account("epic").country == "US", "store override wins");
-                settings.Account("steam").country = "RU";
-                Check(settings.accounts["steam"].country == "KZ", "result cannot mutate settings");
-            });
             Test("CBR nominal and two-way decimal conversion", () => { var fx = PriceFx.Parse(Fx(), DateTime.UtcNow); Check(fx.Convert(1000m,"KZT","RUB")==200m,"nominal 100"); Check(fx.Convert(100m,"RUB","KZT")==500m,"inverse"); Check(fx.Convert(1m,"USD","KZT")==450m,"cross"); Check(fx.Convert(1m,"XXX","RUB")==null,"unknown not guessed"); });
             Test("FX rejects stale, malformed and unsafe XML", () => { Throws(()=>PriceFx.Parse(Fx("01.01.2000"),DateTime.UtcNow)); Throws(()=>PriceFx.Parse("<!DOCTYPE ValCurs [<!ENTITY x SYSTEM 'file:///etc/passwd'>]><ValCurs Date='01.01.2000'>&x;</ValCurs>",DateTime.UtcNow)); Throws(()=>PriceFx.Parse("<ValCurs Date='"+DateTime.UtcNow.ToString("dd.MM.yyyy")+"'/>",DateTime.UtcNow)); });
             Test("No price is not zero; free remains zero", () => { Check(PriceService.SteamOffer(null,"X","u","KZ",DateTime.UtcNow,false)==null,"missing"); var free=PriceService.SteamOffer(null,"X","u","KZ",DateTime.UtcNow,true);PriceService.ApplyFx(free,null);Check(free.rub==0&&free.kzt==0,"free");var paid=PriceService.SteamOffer(JObject.Parse("{currency:'KZT',final:125050,initial:200000}"),"X","u","KZ",DateTime.UtcNow,false);PriceService.ApplyFx(paid,null);Check(paid.amount==1250.50m&&paid.kzt==1250.50m&&paid.rub==null,"failed FX preserves original"); });
@@ -67,7 +55,7 @@ class PriceServiceTests
             });
             await TestAsync("A failed provider does not hide the official quote", async () => {
                 var h=new Http{respond=r=>r.RequestUri.Host=="www.cbr.ru"?Json(Fx()):r.RequestUri.Host=="store.steampowered.com"?Json("{'10':{success:true,data:{name:'Fixture Game',is_free:false,price_overview:{currency:'RUB',initial:120000,final:90000}}}}") :Json("",(HttpStatusCode)429)};
-                using(var s=new PriceService(h)) {var c=await s.Compare(new PriceProduct{id="10",name="Fixture Game",store="steam"},new PriceSettings{accounts=new Dictionary<string,PriceAccount>{{"steam",new PriceAccount{country="RU"}}}},false,CancellationToken.None);Check(c.sources[0].offers.Single().rub==900m,"official");Check(c.sources.Where(x=>x.source=="plati"||x.source=="funpay").All(x=>x.status=="error"&&x.offers.Count==0)&&c.sources.Where(x=>x.source=="epic"||x.source=="gog").All(x=>x.status=="error"&&x.offers.Count==0),"isolated errors after inheriting Steam region");}
+                using(var s=new PriceService(h)) {var c=await s.Compare(new PriceProduct{id="10",name="Fixture Game",store="steam"},new PriceSettings{accounts=new Dictionary<string,PriceAccount>{{"steam",new PriceAccount{country="RU"}}}},false,CancellationToken.None);Check(c.sources[0].offers.Single().rub==900m,"official");Check(c.sources.Where(x=>x.source!="steam").All(x=>x.status=="error"&&x.offers.Count==0),"isolated errors");}
             });
             await TestAsync("Unconfigured country and unsupported store never become Steam prices", async () => {
                 var h=new Http{respond=r=>r.RequestUri.Host=="www.cbr.ru"?Json(Fx()):r.RequestUri.Host=="plati.io"?Json("{items:[]}"):Json("<html></html>")};

@@ -36,7 +36,7 @@
   text('#dl-speed',speed(p==='complete'||p==='processing'?null:m.speed));text('#dl-remaining',p==='complete'?'Готово':bytes(m.remaining));text('#dl-eta',p==='complete'?'Готово':p==='processing'?'Установка':finite(m.etaSeconds)?'≈ '+time(m.etaSeconds):'Уточняется');
   text('#dl-elapsed',time(m.elapsedSeconds));text('#dl-elapsed-label',j.createdAt?'ПРОШЛО':'НАБЛЮДАЕМ');text('#dl-elapsed-note',j.createdAt?'с запуска установки':'с открытия Orbit');text('#dl-peak',speed(m.peak));
   text('#dl-source',(m.source?m.source+' · ':'')+(m.note||'Подробные показатели пока недоступны.'));
-  text('#dl-client','Открыть '+store(j)+' ↗');$('#dl-stop').hidden=j.state!=='preparing';$('#dl-play').hidden=j.state!=='complete';$('#dl-dismiss').hidden=j.state!=='complete';drawGraph(m);renderQueue();
+  text('#dl-client','Открыть '+store(j)+' ↗');$('#dl-stop').hidden=j.state!=='preparing';$('#dl-play').hidden=j.state!=='complete';$('#dl-dismiss').hidden=!['complete','attention','handed'].includes(j.state);drawGraph(m);renderQueue();
  }
  function renderDock(){
   const active=jobs.filter(j=>j.state!=='complete'),j=active.find(j=>phase(j)==='downloading')||active[0],m=j?.metrics||{};
@@ -74,7 +74,7 @@
  document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b||!api)return;const d=b.dataset;
   if(d.downloadId){selected=d.downloadId;render();animate($('.dl-active-copy'),[{opacity:.35,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],180);return;}
-  const j=current();switch(d.download){case'back':hide();break;case'client':if(j)api.send('client',{store:j.store});break;case'stop':if(j&&j.state==='preparing')api.send('cancelInstall',{id:j.id});break;case'play':if(j&&j.state==='complete')api.send('play',{id:j.gameId});break;case'dismiss':if(j&&j.state==='complete')api.send('dismissJob',{id:j.id});break;}
+  const j=current();switch(d.download){case'back':hide();break;case'library':hide(false);api.openLibrary?.();break;case'client':if(j)api.send('client',{store:j.store});break;case'stop':if(j&&j.state==='preparing')api.send('cancelInstall',{id:j.id});break;case'play':if(j&&j.state==='complete')api.send('play',{id:j.gameId});break;case'dismiss':if(j&&['complete','attention','handed'].includes(j.state))api.send('dismissJob',{id:j.id});break;}
  });
  window.OrbitDownloads={init,update,show,hide,isOpen:()=>open,format:{bytes,speed,time}};
 })();

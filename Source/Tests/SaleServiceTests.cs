@@ -44,13 +44,20 @@ class SaleServiceTests
     if(r.RequestUri.Host=="store.epicgames.com")return Response("{data:{Catalog:{searchStore:{elements:[{id:'e1',namespace:'en',title:'Fixture Game 2',offerType:'BASE_GAME',productSlug:'fixture2',price:{totalPrice:{originalPrice:500,discountPrice:100,currencyCode:'KZT',currencyInfo:{decimals:2}}}}]}}}}");
     if(r.RequestUri.AbsolutePath.Contains("featuredcategories"))return Response(specials);
     if(r.RequestUri.Host=="store.steampowered.com")return Response("{'1':{success:true,data:{name:'Fixture Game',is_free:false,price_overview:{currency:'KZT',initial:200000,final:150000}}}}");
-    return Response("",HttpStatusCode.TooManyRequests);
+    return Response("",(HttpStatusCode)429);
    }};
    var settings=new PriceSettings{accounts=new Dictionary<string,PriceAccount>{{"steam",new PriceAccount{country="KZ",currency="KZT"}},{"epic",new PriceAccount{country="KZ",currency="KZT"}},{"gog",new PriceAccount{country="KZ",currency="USD"}}}};
    using(var service=new PriceService(h)){
     var c=await service.Compare(new PriceProduct{store="steam",id="1",name="Fixture Game"},settings,false,CancellationToken.None);
     Check(c.sources.Single(x=>x.source=="gog").offers.Single().rub==180,"exact title cross-store quote and FX");Check(c.sources.Single(x=>x.source=="epic").offers.Count==0,"sequel not substituted for same game");Check(c.sources.Single(x=>x.source=="steam").offers.Single().amount==1500&&c.sources.Single(x=>x.source=="funpay").status=="error","provider failure does not hide official price");Check(c.calendar.events.Any(x=>x.scope=="themed"),"calendar separate from game discount");
     var d=await service.Discover("steam",settings.Account("steam"),false,CancellationToken.None);Check(d.products.Single().preview.kzt==1000,"discovery contains actual regional quote");
+    Check(c.sources.Single(x=>x.source=="epic").status=="not_found","missing exact edition is distinct from source failure");
+    var originalResponse=h.respond;
+    h.respond=r=>r.RequestUri.Host=="store.epicgames.com"?Response("{data:{Catalog:{searchStore:{elements:[{id:'e1',namespace:'en',title:'Fixture Game',offerType:'BASE_GAME',productSlug:'fixture-game'}]}}}}"):originalResponse(r);
+    var missing=await service.Compare(new PriceProduct{store="steam",id="1",name="Fixture Game"},settings,true,CancellationToken.None);
+    var epicMissing=missing.sources.Single(x=>x.source=="epic");
+    Check(epicMissing.status=="price_unavailable"&&!string.IsNullOrWhiteSpace(epicMissing.message)&&epicMissing.match=="title","matched product retains unavailable-price reason");
+    Check(epicMissing.url=="https://store.epicgames.com/p/fixture-game"&&epicMissing.offers.Count==0,"matched product without price links to actual game");
    }
    using(var service=new PriceService(new Http{respond=r=>Response("",HttpStatusCode.ServiceUnavailable)})){
     var fallback=await service.Calendar(false,CancellationToken.None);Check(fallback.cached&&fallback.checkedAt.Year==2026,"calendar failure exposes dated fallback");var cancel=new CancellationTokenSource();cancel.Cancel();bool cancelled=false;try{await service.Calendar(true,cancel.Token);}catch(OperationCanceledException){cancelled=true;}Check(cancelled,"cancellation not disguised as cached success");

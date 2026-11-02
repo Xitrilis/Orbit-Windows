@@ -22,34 +22,32 @@ namespace Orbit
     {
         public Dictionary<string, PriceAccount> accounts = new Dictionary<string, PriceAccount>();
         public Dictionary<string, string> funpaySections = new Dictionary<string, string>();
-        // A known Steam storefront region is the shared default, not proof of another account's country.
-        // Currency is deliberately not inherited: each storefront returns its own currency.
         public PriceAccount Account(string store)
         {
-            PriceAccount own, shared;
-            accounts.TryGetValue(store, out own);
-            accounts.TryGetValue("steam", out shared);
-            return new PriceAccount { country = !string.IsNullOrEmpty(own?.country) ? own.country : shared?.country ?? "",
-                currency = own?.currency ?? "" };
+            PriceAccount own = null, common = null;
+            accounts?.TryGetValue(store ?? "", out own);
+            accounts?.TryGetValue("steam", out common);
+            // Only the country is inherited. GOG currency and store-specific expectations stay separate.
+            return new PriceAccount { country = string.IsNullOrWhiteSpace(own?.country) ? common?.country ?? "" : own.country, currency = own?.currency ?? "" };
         }
     }
     public sealed class PriceProduct
     {
-        public string token, store, id, name, image, url, productType, catalogNamespace;
+        public string token, store, id, name, image, url, productType, catalogNamespace, priceMessage, priceStatus;
         public PriceOffer preview;
     }
     public sealed class PriceOffer
     {
-        public string source, name, url, currency, country, kind, seller, sellerInfo, region, platform, edition, note, productKey;
+        public string source, name, url, currency, country, kind, seller, sellerInfo, region, platform, edition, note, productKey, provider;
         public DateTime? saleEndsAt;
         public PriceHistoryView history;
         public decimal? amount, originalAmount, rub, kzt;
-        public bool official, from, free;
+        public bool official, from, free, reference;
         public DateTime checkedAt;
     }
     public sealed class PriceSourceResult
     {
-        public string source, status, message, url, regionBasis;
+        public string source, status, message, url;
         public List<PriceOffer> offers = new List<PriceOffer>();
         public int excluded;
         public string match, promotionMessage;
@@ -102,17 +100,19 @@ namespace Orbit
     {
         sealed class Cached { public string body; public DateTime at; }
         readonly HttpClient http;
+        readonly bool nativeEpicTransport;
         readonly Dictionary<string, Cached> cache = new Dictionary<string, Cached>();
         readonly object cacheLock = new object();
         public static readonly string[] Stores = { "steam", "epic", "gog", "ea", "ubisoft", "battlenet" };
-        public static readonly string[] AutomaticStores = { "steam", "epic", "gog" };
+        public static readonly string[] AutomaticStores = { "steam", "epic", "gog", "ea", "ubisoft" };
         public PriceService(HttpMessageHandler handler = null, string dataDirectory = null)
         {
+            nativeEpicTransport = handler == null && Environment.OSVersion.Platform == PlatformID.Win32NT;
             history = new PriceHistoryStore(dataDirectory);
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate });
             http.Timeout = TimeSpan.FromSeconds(25); http.MaxResponseContentBufferSize = 8 * 1024 * 1024;
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.7 (desktop price comparison)");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.19 (desktop price comparison)");
         }
         public static string Normalize(string s) => Regex.Replace((s ?? "").Replace("™", "").Replace("®", "").Normalize(NormalizationForm.FormKC).ToLowerInvariant(), @"[^\p{L}\p{N}]+", " ").Trim();
         public static bool Number(string s, out decimal value) => decimal.TryParse((s ?? "").Replace("\u00a0", "").Replace("\u202f", "").Replace(" ", "").Replace(',', '.'), NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value);
@@ -136,7 +136,7 @@ namespace Orbit
         {
             Uri u;
             if (!Uri.TryCreate(value, UriKind.Absolute, out u) || u.Scheme != "https" || !u.IsDefaultPort || !string.IsNullOrEmpty(u.UserInfo)) return false;
-            return new[] { "store.steampowered.com", "store.epicgames.com", "www.gog.com", "www.ea.com", "store.ubisoft.com", "shop.battle.net", "eu.shop.battle.net", "us.shop.battle.net", "funpay.com", "plati.market", "www.cbr.ru", "partner.steamgames.com" }.Contains(u.DnsSafeHost.ToLowerInvariant());
+            return new[] { "store.steampowered.com", "store.epicgames.com", "www.gog.com", "www.ea.com", "store.ea.com", "store.ubisoft.com", "shop.battle.net", "eu.shop.battle.net", "us.shop.battle.net", "funpay.com", "plati.market", "www.cbr.ru", "partner.steamgames.com" }.Contains(u.DnsSafeHost.ToLowerInvariant());
         }
         public static string FunpaySection(string value)
         {
@@ -146,15 +146,15 @@ namespace Orbit
                 throw new ArgumentException("Нужна ссылка на раздел ключей FunPay: https://funpay.com/lots/номер/.");
             return "https://funpay.com" + u.AbsolutePath.Replace("/en/", "/").TrimEnd('/') + "/";
         }
-        public static string StoreUrl(string store, string name = "")
+        public static string StoreUrl(string store, string name = "", string country = "")
         {
             switch (store)
             {
                 case "steam": return "https://store.steampowered.com/search/?term=" + Query(name);
-                case "epic": return "https://store.epicgames.com/browse?q=" + Query(name);
+                case "epic": return "https://store.epicgames.com/browse?count=40&lang=en-US&q=" + Query(name) + "&sortBy=relevancy&sortDir=DESC";
                 case "gog": return "https://www.gog.com/en/games?query=" + Query(name);
-                case "ea": return "https://www.ea.com/games/library";
-                case "ubisoft": return "https://store.ubisoft.com/";
+                case "ea": return PublisherSearchUrl(store, name, country);
+                case "ubisoft": return PublisherSearchUrl(store, name, country);
                 case "battlenet": return "https://shop.battle.net/";
                 default: throw new ArgumentException("Неизвестный магазин.");
             }
@@ -164,7 +164,7 @@ namespace Orbit
             Cached saved;
             lock (cacheLock) if (!force && cache.TryGetValue(url, out saved) && DateTime.UtcNow - saved.at < TimeSpan.FromMinutes(minutes)) return saved;
             var uri = new Uri(url);
-            if (uri.Scheme != "https" || !new[] { "store.steampowered.com", "store.epicgames.com", "catalog.gog.com", "plati.io", "api.digiseller.com", "funpay.com", "www.cbr.ru", "partner.steamgames.com", "store-site-backend-static.ak.epicgames.com" }.Contains(uri.Host)) throw new InvalidOperationException("Источник не разрешён.");
+            if (uri.Scheme != "https" || !new[] { "store.steampowered.com", "store.epicgames.com", "catalog.gog.com", "plati.io", "api.digiseller.com", "funpay.com", "www.cbr.ru", "partner.steamgames.com", "store-site-backend-static.ak.epicgames.com", "store.ea.com", "drop-api.ea.com", "store.ubisoft.com", "api.egdata.app", "egs-platform-service.store.epicgames.com" }.Contains(uri.Host)) throw new InvalidOperationException("Источник не разрешён.");
             using (var response = await http.GetAsync(uri, ct).ConfigureAwait(false))
             {
                 if (!response.IsSuccessStatusCode) throw new HttpRequestException((int)response.StatusCode == 429 ? "Источник ограничил частоту запросов. Попробуй позже." : "Источник не вернул данные (HTTP " + (int)response.StatusCode + ").");
@@ -198,24 +198,14 @@ namespace Orbit
             }
             else if (store == "epic")
             {
-                // Public storefront query, not Epic's authenticated Ecom API. No API stability guarantee.
-                var q = "query { Catalog { searchStore(country: " + JsonConvert.SerializeObject(country) + ", locale: \"en-US\", keywords: " + JsonConvert.SerializeObject(query) + ", count: 20) { elements { id title namespace offerType productSlug urlSlug keyImages { type url } price(country: " + JsonConvert.SerializeObject(country) + ") { totalPrice { originalPrice discountPrice currencyCode currencyInfo { decimals } } } } } } }";
-                var raw = await Get("https://store.epicgames.com/graphql?query=" + Query(q), force, ct).ConfigureAwait(false);
-                var elements = JObject.Parse(raw.body).SelectToken("data.Catalog.searchStore.elements") as JArray; if (elements == null) throw new InvalidDataException();
-                foreach (var p in elements.Where(p => new[] { "BASE_GAME", "EDITION", "DLC" }.Contains((string)p["offerType"])) .Take(20))
-                {
-                    var slug = ((string)p["productSlug"] ?? (string)p["urlSlug"] ?? "").Replace("/home", "");
-                    if (!Regex.IsMatch(slug ?? "", "^[a-zA-Z0-9_-]+$")) continue;
-                    var item = new PriceProduct { id = (string)p["id"], catalogNamespace = (string)p["namespace"], store = store, name = Text((string)p["title"]), url = "https://store.epicgames.com/p/" + slug, productType = (string)p["offerType"], image = (string)(p["keyImages"] as JArray)?.FirstOrDefault(i => (string)i["type"] == "OfferImageWide")?["url"] };
-                    var price = p.SelectToken("price.totalPrice"); var decimals = (int?)price?.SelectToken("currencyInfo.decimals");
-                    var amount = Amount(price?["discountPrice"]); var initial = Amount(price?["originalPrice"]);
-                    if (amount.HasValue && decimals.HasValue && decimals >= 0 && decimals <= 4)
-                    {
-                        decimal divisor = 1; for (int i = 0; i < decimals; i++) divisor *= 10;
-                        item.preview = Official(store, item.name, item.url, country, (string)price["currencyCode"], amount / divisor, initial / divisor, raw.at);
-                    }
-                    result.products.Add(item);
-                }
+                var raw = await EpicCatalogAvailable(country, query, false, force, ct).ConfigureAwait(false);
+                result.products = ParseEpicProducts(raw.body, country, raw.at, query: query);
+                result.products = await EpicCurrentProducts(result.products, country, force, ct).ConfigureAwait(false);
+                if (result.products.Any(p => p.preview?.provider == "EGData")) result.message = "Часть цен получена из запасного каталога EGData — источник указан на карточках. Перед покупкой проверь цену в Epic.";
+            }
+            else if (Publisher(store))
+            {
+                result = await PublisherSearch(store, query, country, force, ct).ConfigureAwait(false);
             }
             else
             {
@@ -239,7 +229,7 @@ namespace Orbit
                 catch { ct.ThrowIfCancellationRequested(); result.fxError = "Курс недоступен. Пересчёт не показан."; }
                 foreach (var p in result.products) ApplyFx(p.preview, fx);
             }
-            result.message = result.products.Count == 0 ? "В выбранном регионе ничего не найдено. Попробуй оригинальное название." : "Выбери точную игру и издание. Цена относится к выбранной стране магазина.";
+            if (string.IsNullOrEmpty(result.message)) result.message = result.products.Count == 0 ? "В выбранном регионе ничего не найдено. Попробуй оригинальное название." : "Выбери точную игру и издание. Цена относится к выбранной стране магазина.";
             return result;
         }
         static PriceOffer Official(string store, string name, string url, string country, string currency, decimal? amount, decimal? initial, DateTime at)
@@ -262,8 +252,9 @@ namespace Orbit
         async Task<PriceSourceResult> OfficialQuote(PriceProduct game, PriceAccount account, bool force, CancellationToken ct)
         {
             var result = new PriceSourceResult { source = game.store, url = StoreUrl(game.store, game.name), status = "unavailable" };
-            if (!AutomaticStores.Contains(game.store)) { result.message = "Автоматическая цена ещё не подключена. Проверь её в соответствующем магазине."; return result; }
-            if (string.IsNullOrEmpty(account.country)) { result.message = "Выбери страну аккаунта в настройках цен."; return result; }
+            if (!AutomaticStores.Contains(game.store)) { result.status = "unsupported"; result.message = "Автоматическая цена ещё не подключена. Проверь её в соответствующем магазине."; return result; }
+            if (string.IsNullOrEmpty(account.country)) { result.status = "region_required"; result.message = "Выбери страну аккаунта в настройках цен."; return result; }
+            if (Publisher(game.store)) return await PublisherQuote(game, account, force, ct).ConfigureAwait(false);
             if (game.store == "steam" && Regex.IsMatch(game.id ?? "", "^[0-9]{1,12}$"))
             {
                 var country = Country(account.country);
@@ -276,16 +267,40 @@ namespace Orbit
                     if (offer?.amount != null) { CheckCurrency(offer, account); offer.productKey = "steam::" + game.id; result.match = "id"; result.offers.Add(offer); }
                 }
             }
+            else if (game.store == "epic" && !string.IsNullOrEmpty(game.catalogNamespace))
+            {
+                // A storefront token identifies an exact offer. Never replace it with a similarly named edition.
+                var country = Country(account.country);
+                var product = await EpicCurrentProduct(game, country, force, ct).ConfigureAwait(false);
+                if (ReferenceEquals(product, game))
+                {
+                    var raw = await EpicOfferAvailable(game, country, force, ct).ConfigureAwait(false);
+                    product = ParseEpicOffer(raw.body, country, raw.at);
+                    if (product != null) product = await EpicCurrentProduct(product, country, force, ct).ConfigureAwait(false);
+                }
+                if (product != null && product.id == game.id && product.catalogNamespace == game.catalogNamespace)
+                {
+                    result.url = product.url; result.match = "id";
+                    if (product.preview?.amount != null) { CheckCurrency(product.preview, account); result.offers.Add(product.preview); }
+                    else { result.status = product.priceStatus ?? "price_unavailable"; result.message = product.priceMessage; }
+                }
+            }
             else
             {
                 var search = await Search(game.store, game.name, account, force, ct, false).ConfigureAwait(false);
                 var matches = search.products.Where(p => p.id == game.id && (string.IsNullOrEmpty(game.catalogNamespace) || p.catalogNamespace == game.catalogNamespace)).ToList();
                 // Library IDs for Epic can be a namespace or launch app name. Never use a fuzzy title as an exact price.
                 if (matches.Count == 0) matches = search.products.Where(p => Normalize(p.name) == Normalize(game.name)).ToList();
-                if (matches.Count == 1 && matches[0].preview?.amount != null) { result.offers.Add(matches[0].preview); result.url = matches[0].url; result.match = matches[0].id == game.id ? "id" : "title"; }
+                if (matches.Count == 1)
+                {
+                    result.url = matches[0].url; result.match = matches[0].id == game.id ? "id" : "title";
+                    if (matches[0].preview?.amount != null) result.offers.Add(matches[0].preview);
+                    else { result.status = matches[0].priceStatus ?? "price_unavailable"; result.message = matches[0].priceMessage; }
+                }
+                else { result.status = matches.Count == 0 ? "not_found" : "ambiguous"; result.message = matches.Count == 0 ? "Поиск магазина не нашёл это название и издание." : "Несколько изданий с таким названием. Выбери нужное в поиске магазина."; }
             }
-            result.status = result.offers.Count > 0 ? "ok" : "unavailable";
-            result.message = result.offers.Count > 0 ? "Цена получена из витрины магазина." : "Нет подтверждённой цены для этой игры и страны. Игра может быть недоступна, иметь другое издание или не продаваться отдельно.";
+            if (result.offers.Count > 0) { result.status = "ok"; result.message = result.offers[0].provider == "EGData" ? "Цена из каталога EGData. Перед покупкой проверь её на странице Epic Games." : result.match == "title" ? "Совпало точное название. Проверь состав издания в магазине." : "Цена получена из витрины магазина."; }
+            else if (string.IsNullOrEmpty(result.message)) result.message = "Нет подтверждённой цены для этой игры и страны. Игра может быть недоступна, иметь другое издание или не продаваться отдельно.";
             return result;
         }
         public static string OfferKind(string title, string description = "")
@@ -398,9 +413,6 @@ namespace Orbit
                     if (source == "plati" || source == "funpay") return await Marketplace(source, game, account, settings, force, ct).ConfigureAwait(false);
                     var own = settings.Account(source);
                     var quote = source == game.store ? await OfficialQuote(game, own, force, ct).ConfigureAwait(false) : await MatchingQuote(source, game, own, force, ct).ConfigureAwait(false);
-                    PriceAccount explicitAccount;
-                    if (!settings.accounts.TryGetValue(source, out explicitAccount) || string.IsNullOrEmpty(explicitAccount.country))
-                        quote.regionBasis = "общий регион из Steam";
                     if (source == "epic" && quote.offers.Count == 1 && !string.IsNullOrEmpty(own.country)) {
                         try { quote.promotions = MatchPromotions((await EpicPromotions(own.country, force, ct).ConfigureAwait(false)).body, quote.offers[0].productKey, DateTime.UtcNow); }
                         catch { ct.ThrowIfCancellationRequested(); quote.promotionMessage = "Календарь акций Epic сейчас недоступен."; }

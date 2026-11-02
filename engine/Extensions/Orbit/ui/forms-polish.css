@@ -1,0 +1,34 @@
+/* Form and layout review, 0.18. Keep file/range controls and embedded search fields intact. */
+#friend-lobby-input,#friend-server-input,.hz-inputs input,.hz-inputs select,.rv-body input:not([type=checkbox]),#mc-source{box-sizing:border-box;font:inherit;color:var(--text);min-height:40px;padding:10px 12px;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--r-md);min-width:0;max-width:100%}
+#friend-lobby-input,#friend-server-input{width:100%;margin:6px 0 12px}
+select{color-scheme:dark}select option{background:var(--panel);color:var(--text)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.search:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.hz-control input,.rv-switch input{accent-color:var(--accent);width:18px;height:18px;flex:0 0 18px}
+.hz-mode span,.hz-hero h2 em,.hz-steps article>span,.hz-panel-icon{color:var(--accent)}
+.hz-panel-icon{background:rgba(var(--accent-rgb),.14)}
+.hz-mode small,.hz-badge{font-size:var(--fs-xs)}
+.hz-hero-copy>p{margin-bottom:24px}.hz-hero-copy .hz-actions{margin-top:24px;gap:10px}
+.hz-status:not(.error),.rv-status{background:rgba(var(--accent-rgb),.10);color:var(--text);border:1px solid rgba(var(--accent-rgb),.24)}
+.hz-progress i{background:var(--accent)}
+.rv-body input:focus{outline-color:var(--accent)}
+.hz-modes,.hz-steps article,.hz-panel,.hz-together,.hz-ai,.hz-output,.hz-inbox,.hz-result-card,.rv-card{border-radius:var(--r-lg)}
+.hz-hero{border-radius:var(--r-xl)}
+.price-head{padding-right:44px;gap:16px}
+.prices-body .price-region-chip{flex-wrap:nowrap;white-space:nowrap;max-width:none;flex-shrink:0;gap:8px}
+.price-region-chip svg{flex-shrink:0}
+.price-store-label{margin-right:8px}
+main{padding-bottom:28px}
+#modal[data-kind="friends"]{background:var(--glass-dark);backdrop-filter:var(--blur);border-color:var(--glass-border)}
+.effects-lite #modal[data-kind="friends"]{background:var(--bg)}
+.sidebar-scroll{scroll-padding-block:16px;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+.sidebar-scroll[data-overflow="true"]{padding-bottom:20px}
+.sidebar-scroll[data-at-end="false"]{mask-image:linear-gradient(#000 calc(100% - 22px),transparent);-webkit-mask-image:linear-gradient(#000 calc(100% - 22px),transparent)}
+.sidebar-scroll .nav-item{flex-shrink:0;min-height:38px}
+.sidebar-scroll-hint{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);pointer-events:none;background:var(--sidebar-bg);padding:3px}
+.sidebar-scroll-wrap{position:relative;min-height:0;flex:1;display:flex;flex-direction:column}
+.home-discover::before{animation-play-state:paused}
+.home-discover:hover::before,.home-discover:focus-within::before{animation-play-state:running}
+.ui-background *,.ui-background *::before,.ui-background *::after{animation-play-state:paused!important}
+@media(min-width:1900px){main>header,main>#home-view,main>#hero,main>#library,main>#minecraft-view,main>#queue-view,main>#activity-view{max-width:1560px;margin-left:auto;margin-right:auto;width:100%}.game-title,.nav-item,.home-description,.hz-panel p,.hz-steps p{font-size:15px}}
+@media(max-width:1000px){.price-head{flex-wrap:wrap}.prices-body .price-region-chip{font-size:12px}.price-region-chip small{display:none}}

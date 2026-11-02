@@ -44,10 +44,16 @@ namespace Orbit
         Forms.NotifyIcon tray;
         DispatcherTimer timer;
         JObject prefs = new JObject();
+        LauncherStateFile<JObject> preferencesFile;
+        LauncherStateFile<List<InstallJob>> downloadsFile;
+        readonly List<string> startupWarnings = new List<string>();
         readonly List<InstallJob> jobs = new List<InstallJob>();
         readonly Dictionary<string, Process> helpers = new Dictionary<string, Process>();
-        bool ready, exiting, modalOpen;
+        bool ready, exiting, modalOpen, engineRequested;
+        Window engineWindow;
         MinecraftController minecraft;
+        RadminController radmin;
+        HorizonController horizon;
         string lastSnapshot = "";
         bool pollingDownloads;
         readonly Dictionary<string, DownloadTracker> downloadTrackers = new Dictionary<string, DownloadTracker>();
@@ -59,6 +65,7 @@ namespace Orbit
         {
             if (PlayniteApi.ApplicationInfo.Mode != ApplicationMode.Desktop) return;
             if (!PlayniteApi.MainView.UIDispatcher.CheckAccess()) { PlayniteApi.MainView.UIDispatcher.Invoke(new Action(() => OnApplicationStarted(args))); return; }
+            GuardEngineWindow();
             diagnosticLog = new DiagnosticsLog(Path.Combine(root,"OrbitData","Logs"),"app");
             AppDomain.CurrentDomain.UnhandledException += Unhandled;
             Application.Current.DispatcherUnhandledException += DispatcherFailed;
@@ -66,12 +73,13 @@ namespace Orbit
             try
             {
                 dataDir = Path.Combine(root, "OrbitData"); Directory.CreateDirectory(dataDir);
-                var p = Path.Combine(dataDir, "preferences.json");
-                if (File.Exists(p)) { try { prefs = JObject.Parse(File.ReadAllText(p)); } catch { File.Copy(p, p + ".invalid-" + DateTime.UtcNow.Ticks); } }
-                var jf = Path.Combine(dataDir, "downloads.json");
-                if (File.Exists(jf)) { try { jobs.AddRange(JsonConvert.DeserializeObject<List<InstallJob>>(File.ReadAllText(jf)) ?? new List<InstallJob>()); } catch { } }
+                preferencesFile = new LauncherStateFile<JObject>(Path.Combine(dataDir,"preferences.json"),2*1024*1024,LauncherState.Preferences,()=>new JObject());
+                downloadsFile = new LauncherStateFile<List<InstallJob>>(Path.Combine(dataDir,"downloads.json"),8*1024*1024,LauncherState.Downloads,()=>new List<InstallJob>());
+                prefs=preferencesFile.Value;jobs.AddRange(downloadsFile.Value);
+                if(preferencesFile.Warning!=null){startupWarnings.Add("Настройки: "+preferencesFile.Warning);diagnosticLog.Record(preferencesFile.ReadOnly?"settings.warning":"settings.recovered",component:"settings");}
+                if(downloadsFile.Warning!=null){startupWarnings.Add("История загрузок: "+downloadsFile.Warning);diagnosticLog.Record(downloadsFile.ReadOnly?"downloads.warning":"downloads.recovered",component:"downloads");}
                 foreach (var j in jobs.Where(j => j.state == "preparing")) { j.state = "attention"; j.message = "Автодействия прерваны перезапуском. Проверь клиент."; }
-                assistant = new AssistantController(folder, dataDir, AssistantGames, OpenClient, Send);
+                assistant = new AssistantController(folder, dataDir, AssistantGames, OpenClient, Send, g => horizon.AssistantState(g));
                 prices = new PriceController(dataDir, id => { var g = GetGame(id); return new PriceProduct { id = g.GameId, name = g.Name, store = StoreOf(g), image = Art(g.CoverImage) }; }, message => Ui(() => Send(message)));
                 wallet = new WalletController(dataDir, message => Ui(() => Send(message)));
                 artworkStore = new ArtworkStore(Path.Combine(dataDir, "Artwork"));
@@ -79,10 +87,13 @@ namespace Orbit
                 home = new HomeController(dataDir, HomeLibrary, () => assistant.RecommendationReady, assistant.Recommend, prices.RegisterProduct, message => Ui(() => Send(message)));
                 playHistory = new PlayHistory(dataDir);
                 gameJournal = new GameJournal(Path.Combine(dataDir,"game-journal.json"));
-                minecraft = new MinecraftController(dataDir, () => window, Send, ex => diagnosticLog?.Record("minecraft.failed",ex,"minecraft"), () => exiting);
+                var sharedMinecraftSettings = new MinecraftSettingsStore(dataDir);
+                minecraft = new MinecraftController(dataDir, () => window, Send, ex => diagnosticLog?.Record("minecraft.failed",ex,"minecraft"), () => exiting, sharedMinecraftSettings);
+                radmin = new RadminController(folder, dataDir, () => window, message => Ui(() => Send(message)), ex => diagnosticLog?.Record("radmin.failed",ex,"radmin"), () => exiting);
+                horizon = new HorizonController(dataDir, () => window, message => Ui(() => Send(message)), ex => diagnosticLog?.Record("horizon.failed",ex,"horizon"), () => exiting, sharedMinecraftSettings);
                 backgroundClients = new BackgroundClients(dataDir, new WinClientWindows(), () => (bool?)prefs["backgroundClients"] != false, () => modalOpen || jobs.Any(j => j.state == "preparing"), () => Snapshot(true));
-                CreateWindow(); CreateTray();
-                Application.Current.MainWindow?.Hide();
+                CreateWindow(); CreateTray(); radmin.StartAuto();
+                GuardEngineWindow();
                 timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
                 timer.Tick += (s, e) => Safe(() => { var showFile=Path.Combine(dataDir,"show.request"); if(File.Exists(showFile)){try{File.Delete(showFile);}catch{} Show();} PollJobs(); if (window.IsVisible && !modalOpen) Snapshot(); });
                 timer.Start(); Show();diagnosticLog.Record("app.started");
@@ -99,20 +110,18 @@ namespace Orbit
             WindowChrome.SetWindowChrome(window, new WindowChrome { CaptionHeight = 0, ResizeBorderThickness = new Thickness(6), GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(12) });
             try { window.Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri(Path.Combine(folder, "orbit.ico"))); } catch { }
             var uiFile = Path.Combine(folder, "ui", "index.html");
-            browser = new ChromiumWebBrowser { Address = new Uri(uiFile).AbsoluteUri, BrowserSettings = new BrowserSettings { WindowlessFrameRate = 60 } };
+            browser = new ChromiumWebBrowser { Address = new Uri(uiFile).AbsoluteUri };
             browser.RequestHandler = new LocalUiRequestHandler(uiFile);
             browser.JavascriptMessageReceived += (s, e) =>
             {
                 var text = e.Message as string;
                 if (text == null || text.Length > 256000) return;
-                Ui(() => { try { if (new Uri(browser.Address).LocalPath == uiFile) Handle(JObject.Parse(text)); } catch (Exception ex) { var code=diagnosticLog?.Record("ui.command.failed",ex);Send(new{kind="error",message=ex.Message,diagnosticCode=code}); } });
+                Ui(() => { JObject command=null;try { if (new Uri(browser.Address).LocalPath == uiFile) { command=JObject.Parse(text);Handle(command); } } catch (Exception ex) { var code=diagnosticLog?.Record("ui.command.failed",ex);var kind=(string)command?["kind"];Send(new{kind=new[]{"installOptions","browseFolder","install"}.Contains(kind)?"installError":"error",id=(string)command?["id"],requestId=(string)command?["requestId"],message=ex.Message,diagnosticCode=code}); } });
             };
             browser.FrameLoadEnd += (s, e) => { if (e.Frame.IsMain) Ui(() => { ready = true;diagnosticLog?.Record("browser.ready",component:"browser"); Snapshot(true); }); };
             browser.LoadError += (s,e) => { if(e.Frame.IsMain && (int)e.ErrorCode != -3) diagnosticLog?.Record("browser.load.failed",component:"browser",number:(int)e.ErrorCode); };
-            // Keep HTML scrollbar hit targets inside the native six-pixel resize frame.
-            browser.Margin = new Thickness(6);
-            window.Content = browser;
-            window.Closing += (s, e) => { if (!exiting) { e.Cancel = true; window.Hide(); } };
+            window.Content = browser;PrepareStartup();
+            window.Closing += (s, e) => { if (!exiting) { e.Cancel = true;if(startupTicket!=null&&!startupFinished)try{StartupHandoff.Release(dataDir,startupTicket.Token,"hide");}catch{} window.Hide(); } };
             window.SourceInitialized += (s, e) => { try { var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle; int round = 2; DwmSetWindowAttribute(hwnd, 33, ref round, 4); assistant?.Register(hwnd); } catch { } };
         }
         void CreateTray()
@@ -130,8 +139,27 @@ namespace Orbit
             menu.Items.Add("Выйти", null, (s,e) => Ui(() => Application.Current.Shutdown()));
             tray.ContextMenuStrip = menu; tray.MouseClick += (s,e) => { if (e.Button == Forms.MouseButtons.Left) Ui(Show); };
         }
-        void Show() { window.Show(); if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal; window.Activate(); Snapshot(true); }
-        void ShowEngine() { backgroundClients?.Cancel();var w = Application.Current.MainWindow; if (w == null) return; w.Show(); w.WindowState = WindowState.Normal; w.Activate(); }
+        void GuardEngineWindow()
+        {
+            var host = Application.Current.MainWindow;
+            if (host == null || host == window) return;
+            if (engineWindow != host)
+            {
+                engineWindow = host;
+                host.IsVisibleChanged += (s, e) => HideEngineLater(host);
+                host.Activated += (s, e) => HideEngineLater(host);
+            }
+            HideEngineLater(host);
+        }
+        void HideEngineLater(Window host)
+        {
+            if (engineRequested || exiting) return;
+            host.Dispatcher.BeginInvoke(new Action(() => {
+                if (!engineRequested && !exiting && host.IsVisible) host.Hide();
+            }), DispatcherPriority.Background);
+        }
+        void Show() { window.Show(); if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal; if(startupTicket==null||startupFinished)window.Activate(); Snapshot(true); }
+        void ShowEngine() { backgroundClients?.Cancel();engineRequested = true;var w = Application.Current.MainWindow; if (w == null) return; w.Show(); w.WindowState = WindowState.Normal; w.Activate(); }
         public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args) { yield return new MainMenuItem { Description = "Открыть Orbit", Action = _ => Ui(Show) }; }
         public override void OnLibraryUpdated(OnLibraryUpdatedEventArgs args) { Ui(() => { diagnosticLog?.Record("library.updated");Snapshot(true); Send(new { kind = "syncDone" }); backgroundClients?.Schedule(); }); }
         public override void OnGameStarted(OnGameStartedEventArgs args) { Ui(() => { diagnosticLog?.Record("game.started");var g=args.Game;playHistory?.Started(g.Id.ToString(),g.Name,StoreOf(g),DateTime.UtcNow);Snapshot(true);backgroundClients?.Schedule(); }); }
@@ -140,10 +168,11 @@ namespace Orbit
         public override void OnGameInstalled(OnGameInstalledEventArgs args) { Ui(() => { PollJobs(); Snapshot(true); }); }
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
-            exiting = true; timer?.Stop();diagnosticLog?.Record("app.stopped");
+            exiting = true; timer?.Stop();startupTimer?.Stop();diagnosticLog?.Record("app.stopped");
             AppDomain.CurrentDomain.UnhandledException -= Unhandled;Application.Current.DispatcherUnhandledException -= DispatcherFailed;TaskScheduler.UnobservedTaskException -= TaskFailed;
             foreach (var p in helpers.Values.ToArray()) { try { if (!p.HasExited) p.Kill(); } catch { } }
-            try { SavePrefs(); SaveJobs(); } catch { }
+            try { SavePrefs(); } catch { }
+            try { SaveJobs(); } catch { }
             playHistory?.Shutdown(); backgroundClients?.Dispose(); home?.Dispose(); wallet?.Dispose(); artwork?.Dispose(); prices?.Dispose(); assistant?.Dispose(); tray?.Dispose(); browser?.Dispose(); window?.Close();
         }
         static string StoreName(string name)
@@ -161,7 +190,7 @@ namespace Orbit
         LibraryPlugin Plugin(string store) => PlayniteApi.Addons.Plugins.OfType<LibraryPlugin>().FirstOrDefault(p => StoreName(p.Name) == store);
         List<GameContext> AssistantGames()
         {
-            return PlayniteApi.Database.Games.Where(g => StoreOf(g) != null).Select(g =>
+            var result = PlayniteApi.Database.Games.Where(g => StoreOf(g) != null).Select(g =>
             {
                 string directory = "", executable = "";
                 try
@@ -178,6 +207,8 @@ namespace Orbit
                 catch { }
                 return new GameContext { id = g.Id.ToString(), name = g.Name, store = StoreOf(g), appId = g.GameId, installDirectory = directory, executable = executable, installed = g.IsInstalled, running = g.IsRunning };
             }).OrderBy(g => g.name).ToList();
+            var activeHorizon = horizon?.AssistantGame(); if (activeHorizon != null) result.Add(activeHorizon);
+            return result;
         }
         string Art(string path)
         {
@@ -208,18 +239,17 @@ namespace Orbit
                 };
             }).ToArray();
             if(playHistory?.Warning!=null)diagnosticLog?.Record("history.warning",component:"history");if(backgroundClients?.Warning!=null)diagnosticLog?.Record("clients.warning",component:"clients");
-            var snapshot = new { kind = "snapshot", data = new { games = gs, prefs, stores = stores.Select(s => new { id = s, available = Plugin(s) != null }), downloads = DownloadRows(), journal = gameJournal?.Snapshot(), activity = playHistory?.Snapshot() ?? new PlaySession[0], activityWarning = playHistory?.Warning, backgroundClients = new { enabled = (bool?)prefs["backgroundClients"] != false, hiddenStores = backgroundClients?.HiddenStores ?? new string[0], warning = backgroundClients?.Warning }, notifications = PlayniteApi.Notifications.Messages.Where(n => n.Type == NotificationType.Error).Select(n => n.Text).Take(6).ToArray() } };
+            var snapshot = new { kind = "snapshot", data = new { games = gs, prefs, startup=StartupState(), stores = stores.Select(s => new { id = s, available = Plugin(s) != null }), downloads = DownloadRows(), journal = gameJournal?.Snapshot(), activity = playHistory?.Snapshot() ?? new PlaySession[0], activityWarning = playHistory?.Warning, backgroundClients = new { enabled = (bool?)prefs["backgroundClients"] != false, hiddenStores = backgroundClients?.HiddenStores ?? new string[0], warning = backgroundClients?.Warning }, notifications = PlayniteApi.Notifications.Messages.Where(n => n.Type == NotificationType.Error).Select(n => n.Text).Take(6).ToArray() } };
             var key = JsonConvert.SerializeObject(new { snapshot.data.games, snapshot.data.prefs, snapshot.data.stores, snapshot.data.notifications, snapshot.data.journal, snapshot.data.activity, snapshot.data.activityWarning, snapshot.data.backgroundClients });
             var json = JsonConvert.SerializeObject(snapshot);
             if (!force && lastSnapshot == key) return;
             lastSnapshot = key; ExecuteJson(json);
         }
-        void ExecuteJson(string json) { if (ready && browser != null && !browser.IsDisposed) browser.ExecuteScriptAsync("window.Orbit&&window.Orbit.receive(" + json + ");"); }
+        void ExecuteJson(string json) { if (ready && browser != null && !browser.IsDisposed) browser.ExecuteScriptAsync("window.Orbit&&window.Orbit.receive(" + json.Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029") + ");"); }
         void Send(object message) { var payload=JObject.FromObject(message);LogResponse(payload);ExecuteJson(payload.ToString(Formatting.None)); }
         void Error(string message) => Send(new { kind = "error", message });
-        static void AtomicWrite(string file, string text) { var tmp = file + ".tmp"; File.WriteAllText(tmp,text); if (File.Exists(file)) File.Replace(tmp,file,file+".bak"); else File.Move(tmp,file); }
-        void SavePrefs() { if (dataDir != null) AtomicWrite(Path.Combine(dataDir,"preferences.json"),prefs.ToString()); }
-        void SaveJobs() { if (dataDir != null) AtomicWrite(Path.Combine(dataDir,"downloads.json"),JsonConvert.SerializeObject(jobs)); }
+        void SavePrefs() { preferencesFile?.Save(prefs); }
+        void SaveJobs() { downloadsFile?.Save(jobs); }
         Game GetGame(string id)
         {
             if (!Guid.TryParse(id,out var g)) throw new InvalidOperationException("Неверный идентификатор игры.");
@@ -232,6 +262,8 @@ namespace Orbit
             var kind = (string)m["kind"];
             if(kind!=null&&kind.StartsWith("journal",StringComparison.Ordinal)){JournalCommand(m);return;}
             if(kind!=null&&kind.StartsWith("mc",StringComparison.Ordinal)){minecraft?.Handle(m);return;}
+            if(kind!=null&&kind.StartsWith("hz",StringComparison.Ordinal)){horizon?.Handle(m);return;}
+            if(kind!=null&&kind.StartsWith("rv",StringComparison.Ordinal)){radmin?.Handle(m);return;}
             if(kind=="uiFault") { var type=(string)m["type"];diagnosticLog?.Record(type=="promise"?"ui.promise.failed":type=="resource"?"ui.resource.failed":"ui.error",component:(string)m["component"],number:Math.Max(0,Math.Min(1000000,(int?)m["line"]??0)));return; }
             if(kind=="supportStatus"){SupportStatus((string)m["requestId"]);return;}
             if(kind=="supportExport"){ExportSupport((string)m["requestId"]);return;}
@@ -242,14 +274,20 @@ namespace Orbit
             if (kind != null && kind.StartsWith("artwork", StringComparison.Ordinal)) { artwork?.Handle(m); return; }
             switch(kind)
             {
-                case "ready": ready=true; Snapshot(true); break;
+                case "friendsOpen":
+                    var steamUrl=(string)m["url"];
+                    if(!SteamLinks.Allowed(steamUrl)){Send(new{kind="friendsResult",message="Проверь ссылку приглашения или адрес сервера."});break;}
+                    try{Process.Start(new ProcessStartInfo(steamUrl){UseShellExecute=true});Send(new{kind="friendsResult",message="Команда передана Steam. Подключение проверь в самом Steam."});}
+                    catch(Exception ex){diagnosticLog?.Record("friends.failed",ex,"friends");Send(new{kind="friendsResult",message="Не удалось открыть Steam. Проверь, что он установлен и запущен."});}break;
+                case "startupRendered": StartupRendered((string)m["token"]);break;
+                case "ready": ready=true; Snapshot(true);if(startupWarnings.Count>0){Send(new{kind="toast",message=string.Join(" ",startupWarnings)});startupWarnings.Clear();}break;
                 case "minimize": window.WindowState=WindowState.Minimized; break;
                 case "maximize": window.WindowState=window.WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized; break;
                 case "close": window.Hide(); break;
-                case "drag": if (Mouse.LeftButton==MouseButtonState.Pressed) try { window.DragMove(); } catch { } break;
+                case "drag": if (Mouse.LeftButton==MouseButtonState.Pressed) { var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;ReleaseCapture();SendMessage(handle,0xA1,new IntPtr(2),IntPtr.Zero); } break;
                 case "prefs":
                     var patch=m["patch"] as JObject;
-                    if(patch!=null) { foreach(var p in patch.Properties().Where(p=>new[]{"preferred","groups","separate","view","reducedMotion","backgroundClients"}.Contains(p.Name))) { if(p.Name=="backgroundClients" && p.Value.Type!=JTokenType.Boolean)throw new InvalidOperationException("Неверное значение режима клиентов.");prefs[p.Name]=p.Value.DeepClone(); }SavePrefs();if ((bool?)prefs["backgroundClients"] == false) backgroundClients?.RestoreAll();Snapshot(true); }
+                    if(patch!=null){JObject next;try{next=LauncherState.Patch(prefs,patch);preferencesFile.Save(next);}catch{Snapshot(true);throw;}prefs=next;if((bool?)prefs["backgroundClients"]==false)backgroundClients?.RestoreAll();Snapshot(true);}
                     break;
                 case "showClients": backgroundClients?.RestoreAll();diagnosticLog?.Record("clients.restored",component:"clients");Send(new{kind="toast",message="Скрытые окна клиентов возвращены. Автоскрытие приостановлено на 10 минут."});break;
                 case "hideClients": var hiddenCount=backgroundClients?.HideNow()??0;diagnosticLog?.Record("clients.hidden",component:"clients",number:hiddenCount);Send(new{kind="toast",message=hiddenCount>0?"Убираем в фон окон: "+hiddenCount+". Клиенты продолжают работать.":"Сейчас нет окон, которые можно убрать в фон. Во время подготовки установки скрытие приостановлено."});break;
@@ -257,12 +295,6 @@ namespace Orbit
                     foreach(var id in ((JArray)m["ids"]).Values<string>()) { var game=GetGame(id); game.Favorite=(bool)m["value"];PlayniteApi.Database.Games.Update(game); } Snapshot(true);break;
                 case "play":
                     var g=GetGame((string)m["id"]);if(!g.IsInstalled)throw new InvalidOperationException("Выбранная копия ещё не установлена.");if(g.IsRunning||g.IsLaunching){diagnosticLog?.Record("game.duplicate.ignored");break;}diagnosticLog?.Record("game.requested");PlayniteApi.StartGame(g.Id);break;
-                case "friendsOpen":
-                    var steamUrl=(string)m["url"];
-                    if(!ValidFriendsUrl(steamUrl))throw new InvalidOperationException("Неверная ссылка Steam.");
-                    try { backgroundClients?.Allow("steam");Process.Start(new ProcessStartInfo(steamUrl){UseShellExecute=true});Send(new{kind="friendsResult",message="Запрос передан Steam. Подключение и доступ к игре проверяет Steam."}); }
-                    catch { Send(new{kind="friendsResult",message="Не удалось открыть Steam. Проверь, установлен ли клиент."}); }
-                    break;
                 case "connect": Connect((string)m["store"]);break;
                 case "client": OpenClient((string)m["store"]);break;
                 case "advanced": ShowEngine(); break;
@@ -270,23 +302,14 @@ namespace Orbit
                 case "assistantSettings": assistant?.Open(settings:true); break;
                 case "diagnostics": assistant?.Open(GetGame((string)m["id"]).Id.ToString(), diagnostics:true); break;
                 case "sync": Refresh();break;
-                case "installOptions": InstallOptions(GetGame((string)m["id"]));break;
+                case "installOptions": InstallOptions(GetGame((string)m["id"]),(string)m["requestId"]);break;
                 case "browseFolder":
                     using(var d=new Forms.FolderBrowserDialog { Description="Выбери папку для установки игры",SelectedPath=(string)m["path"]??"",ShowNewFolderButton=true })
-                    { if(d.ShowDialog(new WindowOwner(window))==Forms.DialogResult.OK)Send(new {kind="folder",path=d.SelectedPath,free=InstallPaths.Free(d.SelectedPath)}); } break;
-                case "install": StartInstall(GetGame((string)m["id"]),(string)m["path"]);break;
+                    { var accepted=d.ShowDialog(new WindowOwner(window))==Forms.DialogResult.OK;Send(new {kind="folder",id=(string)m["id"],requestId=(string)m["requestId"],cancelled=!accepted,path=accepted?d.SelectedPath:null,free=accepted?InstallPaths.Free(d.SelectedPath):0}); } break;
+                case "install": StartInstall(GetGame((string)m["id"]),(string)m["path"],(string)m["requestId"]);break;
                 case "cancelInstall": CancelInstall((string)m["id"]);break;
-                case "dismissJob": jobs.RemoveAll(j=>j.id==(string)m["id"]&&j.state=="complete");SaveJobs();Snapshot(true);break;
+                case "dismissJob": jobs.RemoveAll(j=>j.id==(string)m["id"]&&new[]{"complete","attention","handed"}.Contains(j.state));SaveJobs();Snapshot(true);break;
             }
-        }
-        internal static bool ValidFriendsUrl(string url)
-        {
-            if(url=="steam://open/friends")return true;
-            if(url==null||url.Length>200)return false;
-            if(System.Text.RegularExpressions.Regex.IsMatch(url,@"\Asteam://joinlobby/[1-9]\d{0,9}/[1-9]\d{0,19}/[1-9]\d{0,19}\z"))return true;
-            var match=System.Text.RegularExpressions.Regex.Match(url,@"\Asteam://connect/(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})\z");
-            int port;
-            return match.Success&&match.Groups[1].Value.Split('.').All(x=>int.Parse(x)<=255)&&int.TryParse(match.Groups[2].Value,out port)&&port>=1&&port<=65535;
         }
         void Connect(string store)
         {
@@ -305,41 +328,52 @@ namespace Orbit
             if(command==null) { Error("Не удалось вызвать обновление. В Playnite нажми F5.");Send(new{kind="syncDone",message="Открой настройки основы и нажми F5."});return; }
             if(command.CanExecute(null))command.Execute(null);else Send(new {kind="syncDone",message="Обновление уже выполняется."});
         }
-        void InstallOptions(Game g)
+        void InstallOptions(Game g,string requestId)
         {
             var steam=StoreOf(g)=="steam";
             var libs=steam?InstallPaths.SteamLibraries():new List<string>();
             var drives=DriveInfo.GetDrives().Where(d=>d.IsReady&&(d.DriveType==DriveType.Fixed||d.DriveType==DriveType.Removable)).Select(d=>new {path=d.RootDirectory.FullName,free=d.AvailableFreeSpace}).ToArray();
-            Send(new{kind="installOptions",id=g.Id.ToString(),libraries=libs.Select(p=>new{path=p,free=InstallPaths.Free(p)}),drives,suggested=steam?libs.FirstOrDefault():Path.Combine(drives.FirstOrDefault()?.path??@"C:\", "Games", InstallPaths.SafeName(g.Name))});
+            Send(new{kind="installOptions",id=g.Id.ToString(),requestId,libraries=libs.Select(p=>new{path=p,free=InstallPaths.Free(p)}),drives,suggested=steam?libs.FirstOrDefault():Path.Combine(drives.FirstOrDefault()?.path??@"C:\", "Games", InstallPaths.SafeName(g.Name))});
         }
-        async void StartInstall(Game game,string path)
+        async void StartInstall(Game game,string path,string requestId)
         {
+            InstallJob job=null;Process process=null;string requestFile=null;
             try
             {
                 if(jobs.Any(j=>j.state=="preparing"))throw new InvalidOperationException("Дождись настройки предыдущей установки.");
                 if(game.IsInstalled||game.IsInstalling)throw new InvalidOperationException("Эта копия уже установлена или устанавливается.");
                 path=InstallPaths.Validate(path);var store=StoreOf(game);
-                if(store=="steam"&&!InstallPaths.SteamLibraries().Any(p=>InstallPaths.Same(p,path)))throw new InvalidOperationException("Сначала добавь эту папку в Steam → Настройки → Хранилище, затем снова выбери её в Orbit. Путь Steam не будет подменён молча.");
+                if(store=="steam"&&!InstallPaths.SteamLibraries().Any(p=>InstallPaths.Same(p,path)))throw new InvalidOperationException("Сначала добавь эту папку в Steam → Настройки → Хранилище, затем снова выбери её в Orbit.");
                 var helper=Path.Combine(folder,"Orbit.InstallHelper.exe");if(!File.Exists(helper))throw new FileNotFoundException("Не найден помощник установки.");
-                var job=new InstallJob{id=Guid.NewGuid().ToString(),gameId=game.Id.ToString(),appId=game.GameId,name=game.Name,store=store,path=path,state="preparing",message="Ожидаем окно установки и проверяем выбранную папку…",createdAt=DateTime.UtcNow};
-                jobs.Insert(0,job);SaveJobs();Snapshot(true);Send(new{kind="installStarted"});
-                var request=Path.Combine(dataDir,"install-"+job.id+".json");File.WriteAllText(request,JsonConvert.SerializeObject(job));
-                var p=new Process{StartInfo=new ProcessStartInfo(helper,"\""+request+"\""){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=System.Text.Encoding.UTF8,StandardErrorEncoding=System.Text.Encoding.UTF8,WorkingDirectory=folder}};
-                p.Start();helpers[job.id]=p;
-                PlayniteApi.InstallGame(game.Id);
-                var output=p.StandardOutput.ReadToEndAsync();var errors=p.StandardError.ReadToEndAsync();
-                var exited=Task.Run(()=>p.WaitForExit(55000));
-                if(!await exited) { try{p.Kill();}catch{} job.state="attention";job.message="Клиент не ответил. Автодействия остановлены; выбранный путь не подтверждён."; }
+                job=new InstallJob{id=Guid.NewGuid().ToString(),gameId=game.Id.ToString(),appId=game.GameId,name=game.Name,store=store,path=path,state="preparing",message="Ожидаем окно установки и проверяем выбранную папку…",createdAt=DateTime.UtcNow};
+                jobs.Insert(0,job);SaveJobs();Snapshot(true);
+                requestFile=Path.Combine(dataDir,"install-"+job.id+".json");File.WriteAllText(requestFile,JsonConvert.SerializeObject(job));
+                process=new Process{StartInfo=new ProcessStartInfo(helper,"\""+requestFile+"\""){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=System.Text.Encoding.UTF8,StandardErrorEncoding=System.Text.Encoding.UTF8,WorkingDirectory=folder}};
+                process.Start();helpers[job.id]=process;
+                // Drain both pipes before InstallGame, which can open a modal client dialog.
+                var output=process.StandardOutput.ReadToEndAsync();var errors=process.StandardError.ReadToEndAsync();
+                PlayniteApi.InstallGame(game.Id);Send(new{kind="installStarted",id=game.Id.ToString(),requestId});
+                if(!await Task.Run(()=>process.WaitForExit(55000))) { try{process.Kill();}catch{} if(job.state=="preparing"){job.state="attention";job.message="Клиент не ответил. Автодействия остановлены; выбранный путь не подтверждён.";} }
                 else if(job.state=="preparing")
                 {
-                    var text=await output;await errors;
-                    JObject result=null;try{result=JObject.Parse(text);}catch{}
-                    job.state=p.ExitCode==0?"handed":"attention";
+                    var text=await output;await errors;JObject result=null;try{result=JObject.Parse(text);}catch{}
+                    job.state=process.ExitCode==0?"handed":"attention";
                     job.message=(string)result?["message"]??"Автовыбор папки не подтверждён. Открой клиент и проверь установку.";
                 }
-                helpers.Remove(job.id);p.Dispose();try{File.Delete(request);}catch{} SaveJobs();Snapshot(true);Show();
             }
-            catch(Exception e){ diagnosticLog?.Record("install.failed",e);foreach(var j in jobs.Where(j=>j.gameId==game.Id.ToString()&&j.state=="preparing")){CancelInstall(j.id);j.message="Ошибка подготовки: "+e.Message;}Error(e.Message);SaveJobs();Snapshot(true); }
+            catch(Exception e)
+            {
+                diagnosticLog?.Record("install.failed",e);
+                // A rejected duplicate owns no job and must not cancel the first request.
+                if(job!=null&&job.state=="preparing"){job.state="attention";job.message="Ошибка подготовки: "+e.Message;}
+                Send(new{kind="installError",id=game.Id.ToString(),requestId,message=e.Message});
+            }
+            finally
+            {
+                if(process!=null){try{if(!process.HasExited)process.Kill();}catch{}process.Dispose();}
+                if(job!=null)helpers.Remove(job.id);if(requestFile!=null)try{File.Delete(requestFile);}catch{}
+                try{SaveJobs();Snapshot(true);}catch(Exception e){diagnosticLog?.Record("install.save.failed",e);}
+            }
         }
         void CancelInstall(string id)
         {
@@ -390,9 +424,10 @@ namespace Orbit
             finally { pollingDownloads = false; }
         }
         [DllImport("dwmapi.dll")]static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);
+        [DllImport("user32.dll")]static extern bool ReleaseCapture();
+        [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr h,uint message,IntPtr w,IntPtr l);
     }
     sealed class WindowOwner:Forms.IWin32Window {public IntPtr Handle{get;}public WindowOwner(Window w){Handle=new System.Windows.Interop.WindowInteropHelper(w).Handle;}}
-    public sealed class InstallJob {public string id,gameId,appId,name,store,path,state,message;public double? percent;public DateTime? createdAt,completedAt;}
     sealed class LocalUiRequestHandler:CefSharp.Handler.RequestHandler
     {
         readonly string file;public LocalUiRequestHandler(string path){file=Path.GetFullPath(path);}

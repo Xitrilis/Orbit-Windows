@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 namespace Orbit
 {
- public sealed class PriceDiscovery { public string store,country,message,fxDate,fxError; public SaleCalendar calendar; public List<PriceProduct> products=new List<PriceProduct>(); }
+ public sealed class PriceDiscovery { public string store,country,message,fxDate,fxError,status; public DateTime? checkedAt; public SaleCalendar calendar; public List<PriceProduct> products=new List<PriceProduct>(); }
  public sealed partial class PriceService
  {
   readonly PriceHistoryStore history; SaleCalendar lastCalendar;
@@ -20,14 +20,16 @@ namespace Orbit
    return new SaleCalendar{checkedAt=value.checkedAt,cached=value.cached,message=value.message,events=value.events.Concat(SteamSaleCalendar.Bundled().events.Where(x=>string.CompareOrdinal(x.end,DateTime.UtcNow.ToString("yyyy-MM-dd"))<0)).Concat(new[]{epic}).GroupBy(x=>x.source+x.name+x.start).Select(x=>x.First()).Where(x=>string.CompareOrdinal(x.end,DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd"))>=0).OrderBy(x=>x.start).ToList()};
   }
   async Task<PriceSourceResult> MatchingQuote(string store,PriceProduct game,PriceAccount account,bool force,CancellationToken ct) {
-   var result=new PriceSourceResult{source=store,status="unavailable",url=StoreUrl(store,game.name)};
-   if(string.IsNullOrEmpty(account.country)){result.message="Укажи страну аккаунта этого магазина в настройках цен.";return result;}
+   var result=new PriceSourceResult{source=store,status="unavailable",url=StoreUrl(store,game.name,account.country)};
+   if(string.IsNullOrEmpty(account.country)){result.status="region_required";result.message="Укажи страну аккаунта этого магазина в настройках цен.";return result;}
    var found=await Search(store,game.name,account,force,ct,false).ConfigureAwait(false);var matches=found.products.Where(p=>Normalize(p.name)==Normalize(game.name)).ToList();
-   if(matches.Count!=1){result.message=matches.Count==0?"Точное название и издание не найдены. Похожие игры не подставляются.":"Несколько изданий с таким названием. Выбери нужное в поиске магазина.";return result;}
+   if(matches.Count!=1){result.status=matches.Count==0?"not_found":"ambiguous";result.message=matches.Count==0?"Поиск магазина не нашёл это название и издание. Игра может не продаваться в этой витрине.":"Несколько изданий с таким названием. Выбери нужное в поиске магазина.";return result;}
+   result.url=matches[0].url;
    if(store=="steam") result=await OfficialQuote(matches[0],account,force,ct).ConfigureAwait(false);
-   else if(matches[0].preview?.amount!=null){result.offers.Add(matches[0].preview);result.url=matches[0].url;result.status="ok";}
+   else if(matches[0].preview?.amount!=null){result.offers.Add(matches[0].preview);result.status="ok";}
+   else {result.status=matches[0].priceStatus??"price_unavailable";result.message=matches[0].priceMessage??"Игра найдена, но магазин не вернул цену для выбранной страны.";}
    result.match="title";
-   if(result.offers.Count>0)result.message="Совпало название. Состав издания проверь в магазине.";return result;
+   if(result.offers.Count>0)result.message=result.offers[0].provider=="EGData"?"Цена из каталога EGData. Проверь её на странице Epic Games и состав издания.":"Совпало название. Состав издания проверь в магазине.";return result;
   }
   Task<Cached> EpicPromotions(string country,bool force,CancellationToken ct)=>Get("https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country="+Country(country)+"&allowCountries="+Country(country),force,ct,15);
   public static List<PricePromotion> MatchPromotions(string json,string key,DateTime now) {
@@ -53,12 +55,16 @@ namespace Orbit
   }
   public async Task<PriceDiscovery> Discover(string store,PriceAccount account,bool force,CancellationToken ct) {
    if(!Stores.Contains(store))throw new ArgumentException("Неизвестный магазин.");var result=new PriceDiscovery{store=store,country=account.country};var calendar=Calendar(force,ct);
-   if(store=="steam"&&!string.IsNullOrEmpty(account.country))try {
-    var raw=await Get("https://store.steampowered.com/api/featuredcategories?cc="+Country(account.country).ToLowerInvariant()+"&l=english",force,ct).ConfigureAwait(false);result.products=ParseSteamSpecials(raw.body,account.country,raw.at);result.message="Текущие скидки с витрины Steam для "+account.country+". Перед покупкой обнови цену игры.";
+   if((store=="steam"||store=="epic")&&!string.IsNullOrEmpty(account.country))try {
+    var country=Country(account.country);
+    var raw=store=="epic"?await EpicCatalogAvailable(country,null,true,force,ct).ConfigureAwait(false):await Get("https://store.steampowered.com/api/featuredcategories?cc="+country.ToLowerInvariant()+"&l=english",force,ct).ConfigureAwait(false);
+    result.products=store=="epic"?ParseEpicProducts(raw.body,country,raw.at):ParseSteamSpecials(raw.body,country,raw.at);
+    if(store=="epic")result.products=(await EpicCurrentProducts(result.products,country,force,ct).ConfigureAwait(false)).Where(p=>p.preview?.amount!=null&&p.preview.originalAmount>p.preview.amount&&(!p.preview.saleEndsAt.HasValue||p.preview.saleEndsAt>DateTime.UtcNow)).ToList();
+    result.checkedAt=raw.at;result.status="ok";result.message=result.products.Any(p=>p.preview?.provider=="EGData")?"Скидки Epic из каталога EGData · "+country+". Перед покупкой проверь цену в Epic Games.":"Текущие скидки "+(store=="epic"?"Epic Games":"Steam")+" · "+country+". Перед покупкой обнови цену игры.";
     PriceFx fx=null;try{fx=PriceFx.Parse((await Get("https://www.cbr.ru/scripts/XML_daily.asp",force,ct,360).ConfigureAwait(false)).body,DateTime.UtcNow);result.fxDate=fx.date.ToString("yyyy-MM-dd");}catch{ct.ThrowIfCancellationRequested();result.fxError="Курс недоступен. Показана исходная валюта магазина.";}
     foreach(var p in result.products){CheckCurrency(p.preview,account);ApplyFx(p.preview,fx);}ct.ThrowIfCancellationRequested();history.Observe(result.products.Select(p=>p.preview),DateTime.UtcNow);
-   }catch(Exception e){ct.ThrowIfCancellationRequested();result.message="Подборка скидок недоступна. "+Failure(e);}
-   else result.message=store=="steam"?"Выбери страну Steam, чтобы увидеть текущие скидки.":"Найди конкретную игру: её цены и скидки появятся в сравнении. Подборка популярных акций пока доступна для Steam.";
+   }catch(Exception e){ct.ThrowIfCancellationRequested();result.status="error";result.message="Подборка скидок недоступна. "+Failure(e);}
+   else {result.status=string.IsNullOrEmpty(account.country)?"region_required":"unsupported";result.message=result.status=="region_required"?"Выбери страну витрины в настройках цен.":"Найди конкретную игру по названию. Подборка текущих скидок доступна для Steam и Epic Games.";}
    result.calendar=await calendar.ConfigureAwait(false);return result;
   }
  }

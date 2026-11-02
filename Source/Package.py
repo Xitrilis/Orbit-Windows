@@ -8,7 +8,7 @@ import zipfile
 APP = Path(__file__).resolve().parent.parent
 DEST = APP.parent
 OFFICIAL_RUNTIME = {"engine/" + row.split("  ", 1)[1] for row in (APP / "Notices/playnite-runtime.sha256").read_text().splitlines()}
-OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache", "Backup"}
+OMIT = {"qa", "node_modules", "bin", "obj", "OrbitData", "ExtensionsData", "library", "cache", "webcache", "logs", "browsercache", "Backup", "JITProfiles", "__pycache__"}
 
 def sha(path):
     h = hashlib.sha256()
@@ -22,8 +22,8 @@ def ship(path):
     if rel.as_posix() in OFFICIAL_RUNTIME:
         return path.is_file()
     return (path.is_file() and not path.name.lower().startswith("orbit-report-") and ".partial-" not in path.name.lower() and not any(s in OMIT or s.startswith(".") for s in rel.parts)
-            and path.suffix.lower() not in {".pdb", ".log", ".tmp", ".zip"} and rel.as_posix() not in
-            {"engine/config.json", "engine/safeStartup.flag", "Orbit-startup-report.txt"})
+            and path.suffix.lower() not in {".pdb", ".log", ".tmp", ".zip", ".pyc"} and rel.as_posix() not in
+            {"engine/config.json", "engine/fullscreenConfig.json", "engine/windowPositions.json", "engine/safeStartup.flag", "Orbit-startup-report.txt"})
 
 def pe_complete(path):
     b = path.read_bytes()
@@ -51,12 +51,12 @@ def verify():
         p = APP / rel
         assert ship(p) and p.stat().st_size == int(size) and sha(p) == digest, "Rebuild Orbit.exe after changes: " + rel
     own = {"Orbit.exe": 0x8664, "engine/Extensions/Orbit/Orbit.Plugin.dll": 0x14c,
-           "engine/Extensions/Orbit/Orbit.InstallHelper.exe": 0x8664}
+           "engine/Extensions/Orbit/Orbit.InstallHelper.exe": 0x8664, "engine/Extensions/Orbit/Orbit.RadminHelper.exe": 0x8664}
     for rel, machine in own.items():
         actual, b = pe_complete(APP / rel)
         assert actual == machine, rel
         index = b.find(bytes.fromhex("bd04effe"))
-        assert index >= 0 and struct.unpack_from("<II", b, index + 8) == (11, 0), "Wrong version: " + rel
+        assert index >= 0 and struct.unpack_from("<II", b, index + 8) == (19, 0), "Wrong version: " + rel
     assert manifest in (APP / "Orbit.exe").read_bytes(), "Embedded startup manifest is stale"
     count = 0
     for p in APP.rglob("*"):

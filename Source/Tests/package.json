@@ -1,6 +1,6 @@
 {
   "name": "orbit-checks",
-  "version": "0.11.0",
+  "version": "0.19.0",
   "private": true,
   "scripts": {
     "test": "node --test library-model.test.cjs journal-model.test.cjs",
@@ -8,6 +8,7 @@
     "test:bridge": "node native-bridge.cjs",
     "test:assistant": "node assistant-ui.cjs",
     "test:wallet": "node wallet-ui.cjs",
+    "test:store-audit": "node store-audit-ui.cjs",
     "test:prices": "node prices-ui.cjs",
     "test:downloads": "node downloads-ui.cjs",
     "test:artwork": "node artwork-ui.cjs",
@@ -16,7 +17,16 @@
     "test:activity": "node activity-ui.cjs",
     "test:support": "node support-ui.cjs",
     "test:journal": "node journal-ui.cjs",
-    "test:minecraft": "node minecraft-ui.cjs"
+    "test:minecraft": "node minecraft-ui.cjs",
+    "test:horizon": "node horizon-ui.cjs",
+    "test:radmin": "node radmin-ui.cjs",
+    "test:redesign": "node redesign-ui.cjs",
+    "test:audit": "node audit-ui.cjs",
+    "test:startup": "node startup-ui.cjs",
+    "test:horizon-assistant": "node horizon-assistant-ui.cjs",
+    "test:recovery": "node recovery-ui.cjs",
+    "test:forms": "node form-audit-ui.cjs",
+    "test:publishers": "node publisher-prices-ui.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -23,10 +24,12 @@ namespace Orbit
         PriceProduct current;
         CancellationTokenSource cancellation;
         int generation;
+        readonly Dictionary<string, CancellationTokenSource> lookupCancellation = new Dictionary<string, CancellationTokenSource>();
+        readonly Dictionary<string, int> lookupGeneration = new Dictionary<string, int>();
         bool disposed;
-        public PriceController(string dataDirectory, Func<string, PriceProduct> libraryGame, Action<object> send)
+        public PriceController(string dataDirectory, Func<string, PriceProduct> libraryGame, Action<object> send, HttpMessageHandler handler = null)
         {
-            this.libraryGame = libraryGame; this.send = send; service = new PriceService(null, dataDirectory);
+            this.libraryGame = libraryGame; this.send = send; service = new PriceService(handler, dataDirectory);
             settingsPath = Path.Combine(dataDirectory, "price-settings.json");
             try
             {
@@ -58,6 +61,9 @@ namespace Orbit
         PriceSettings SettingsCopy() => JsonConvert.DeserializeObject<PriceSettings>(JsonConvert.SerializeObject(settings));
         void State() => send(new { kind = "pricesSettings", settings, automaticStores = PriceService.AutomaticStores });
         void Cancel() { lock (gate) { generation++; cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null; } }
+        void CancelLookup(string lane) { CancellationTokenSource c; int old; lookupGeneration.TryGetValue(lane, out old); lookupGeneration[lane] = old + 1; if (lookupCancellation.TryGetValue(lane, out c)) { c.Cancel(); c.Dispose(); lookupCancellation.Remove(lane); } }
+        void CancelLookups() { CancelLookup("quick"); CancelLookup("suggest"); }
+        bool IsActive(string lane, int epoch) { int current; return lane == "main" ? epoch == generation : lookupGeneration.TryGetValue(lane, out current) && epoch == current; }
         void Save()
         {
             var tmp = settingsPath + ".tmp"; File.WriteAllText(tmp, JsonConvert.SerializeObject(settings, Formatting.Indented));
@@ -79,7 +85,7 @@ namespace Orbit
                     try
                     {
                         var next = ValidateAccounts(message["accounts"] as JObject); var previous = settings.accounts;
-                        Cancel(); settings.accounts = next;
+                        Cancel(); lock (gate) CancelLookups(); settings.accounts = next;
                         try { Save(); } catch { settings.accounts = previous; throw; }
                         State(); send(new { kind = "toast", message = "Страны и валюты сохранены. Настройки аккаунтов в магазинах не изменяются." });
                     }
@@ -90,7 +96,7 @@ namespace Orbit
                     var section = PriceService.FunpaySection((string)message["url"]); var key = PriceService.Normalize(current.name);
                     if (section == "") settings.funpaySections.Remove(key); else settings.funpaySections[key] = section;
                     Save(); State(); send(new { kind = "toast", message = "Раздел сохранён. Обнови цены игры." }); break;
-                case "pricesCancel": Cancel(); break;
+                case "pricesCancel": if ((string)message["lane"] == "suggest") { lock (gate) CancelLookup("suggest"); } else Cancel(); break;
                 case "pricesDiscover":
                     Start(message, false); break;
                 case "pricesSearch":
@@ -108,9 +114,12 @@ namespace Orbit
             var requestId = (string)message["requestId"];
             if (string.IsNullOrWhiteSpace(requestId) || requestId.Length > 80) return;
             int epoch; CancellationToken token; PriceSettings config;
+            var lane = requestId.StartsWith("qs-", StringComparison.Ordinal) ? "quick" : requestId.StartsWith("suggest-", StringComparison.Ordinal) ? "suggest" : "main";
             lock (gate)
             {
-                Cancel(); cancellation = new CancellationTokenSource(); token = cancellation.Token; epoch = generation; config = SettingsCopy();
+                if (lane == "main") { Cancel(); cancellation = new CancellationTokenSource(); token = cancellation.Token; epoch = generation; }
+                else { CancelLookup(lane); var lookup = new CancellationTokenSource(); lookupCancellation[lane] = lookup; token = lookup.Token; epoch = lookupGeneration[lane]; }
+                config = SettingsCopy();
             }
             try
             {
@@ -119,7 +128,7 @@ namespace Orbit
                     var store = (string)message["store"];
                     var result = await service.Discover(store, config.Account(store), force, token).ConfigureAwait(false);
                     lock (gate) {
-                        if (disposed || epoch != generation) return;
+                        if (disposed || !IsActive(lane, epoch)) return;
                         foreach (var e in result.calendar.events) Remember(e.url);
                         if (products.Count > 800) products.Clear();
                         foreach (var p in result.products) { p.token = Guid.NewGuid().ToString("N"); products[p.token] = p; Remember(p.url); }
@@ -139,7 +148,7 @@ namespace Orbit
                     var result = await service.Compare(game, config, force, token).ConfigureAwait(false);
                     lock (gate)
                     {
-                        if (disposed || epoch != generation) return;
+                        if (disposed || !IsActive(lane, epoch)) return;
                         foreach (var source in result.sources) { Remember(source.url); foreach (var offer in source.offers) Remember(offer.url); foreach (var p in source.promotions) Remember(p.url); }
                         foreach (var e in result.calendar.events) Remember(e.url);
                         send(new { kind = "pricesResult", requestId, data = result });
@@ -151,11 +160,11 @@ namespace Orbit
                     var result = await service.Search(store, query, config.Account(store), force, token).ConfigureAwait(false);
                     lock (gate)
                     {
-                        if (disposed || epoch != generation) return;
+                        if (disposed || !IsActive(lane, epoch)) return;
                         if (products.Count > 800) products.Clear();
                         foreach (var p in result.products) { p.token = Guid.NewGuid().ToString("N"); products[p.token] = p; Remember(p.url); }
-                        Remember(PriceService.StoreUrl(store, query));
-                        send(new { kind = "pricesSearchResult", requestId, data = result, url = PriceService.StoreUrl(store, query) });
+                        Remember(PriceService.StoreUrl(store, query, config.Account(store).country));
+                        send(new { kind = "pricesSearchResult", requestId, data = result, url = PriceService.StoreUrl(store, query, config.Account(store).country) });
                     }
                 }
             }
@@ -163,12 +172,12 @@ namespace Orbit
             {
                 lock (gate)
                 {
-                    if (disposed || epoch != generation || token.IsCancellationRequested) return;
+                    if (disposed || !IsActive(lane, epoch) || token.IsCancellationRequested) return;
                     var error = e is ArgumentException || e is InvalidOperationException ? e.Message : e is TaskCanceledException ? "Источник не ответил вовремя. Повтори запрос." : "Не удалось загрузить данные. Проверь соединение или открой магазин.";
                     send(new { kind = "pricesError", requestId, message = error });
                 }
             }
         }
-        public void Dispose() { lock (gate) { disposed = true; Cancel(); service.Dispose(); } }
+        public void Dispose() { lock (gate) { disposed = true; Cancel(); CancelLookups(); service.Dispose(); } }
     }
 }

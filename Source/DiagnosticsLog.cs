@@ -26,15 +26,15 @@ namespace Orbit {
  public sealed class DiagnosticsLog {
   public const int MaxBytes=512*1024;
   static readonly HashSet<string> Names=new HashSet<string>{
-   "startup.begin","startup.cancelled","startup.integrity.ok","startup.integrity.failed","startup.launch","startup.failed",
+   "startup.handoff.complete","startup.bounds.failed","startup.ui.rendered","startup.ui.released","install.save.failed","startup.begin","startup.cancelled","startup.integrity.ok","startup.integrity.failed","startup.launch","startup.failed",
    "app.started","app.stopped","app.start.failed","app.unhandled","app.task.failed","ui.callback.failed","ui.command.failed",
    "ui.error","ui.promise.failed","ui.resource.failed","browser.load.failed","browser.ready","operation.failed",
    "game.requested","game.started","game.stopped","game.cancelled","game.duplicate.ignored","library.updated",
-   "clients.hidden","clients.restored","history.warning","clients.warning","downloads.failed","install.failed",
-   "journal.failed","minecraft.failed","report.created","report.failed","event.unknown"};
+   "settings.recovered","settings.warning","downloads.recovered","downloads.warning","clients.hidden","clients.restored","history.warning","clients.warning","downloads.failed","install.failed",
+   "friends.failed","journal.failed","minecraft.failed","horizon.failed","radmin.failed","report.created","report.failed","event.unknown"};
   static readonly HashSet<string> Components=new HashSet<string>{
-   "journal","minecraft","journal.js","journal-model.js","minecraft.js","bootstrap","host","browser","home","prices","wallet","artwork","assistant","downloads","history","clients","support",
-   "core.js","app.js","home.js","prices.js","sales.js","wallet.js","artwork.js","activity.js","downloads.js","support.js","ui-health.js","assistant.js"};
+   "settings","horizon","horizon.js","radmin","radmin.js","friends","themes.js","quick-search.js","journal","minecraft","journal.js","journal-model.js","minecraft.js","bootstrap","host","browser","home","prices","wallet","artwork","assistant","downloads","history","clients","support",
+   "startup.js","core.js","app.js","home.js","prices.js","sales.js","wallet.js","artwork.js","activity.js","downloads.js","support.js","ui-health.js","assistant.js"};
   readonly object gate=new object();readonly string file;readonly string session=Guid.NewGuid().ToString("N");
   readonly Dictionary<string,Tuple<DateTime,string>> recent=new Dictionary<string,Tuple<DateTime,string>>();
   public string DirectoryPath {get;}

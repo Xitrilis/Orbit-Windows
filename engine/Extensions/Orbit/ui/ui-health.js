@@ -1,6 +1,6 @@
 (()=>{
  'use strict';
- const files=new Set(['journal-model.js','journal.js','minecraft.js','core.js','app.js','home.js','prices.js','sales.js','wallet.js','artwork.js','activity.js','downloads.js','support.js','ui-health.js','assistant.js']);
+ const files=new Set(['startup.js','themes.js','quick-search.js','journal-model.js','journal.js','minecraft.js','horizon.js','radmin.js','core.js','app.js','home.js','prices.js','sales.js','wallet.js','artwork.js','activity.js','downloads.js','support.js','ui-health.js','assistant.js']);
  const sent=new Map();let last=null;
  function record(type,component,line){
   component=files.has(component)?component:'browser';line=Number.isFinite(line)?Math.max(0,Math.min(1000000,Math.floor(line))):0;
@@ -11,10 +11,11 @@
  }
  function show(){
   if(!last||document.getElementById('ui-health-notice'))return;
+  if(!window.Orbit||!window.OrbitStartup){document.getElementById('app-splash')?.remove();document.documentElement.classList.remove('orbit-starting','startup-revealing');const app=document.getElementById('app');if(app)app.inert=false;}
   const box=document.createElement('div');box.id='ui-health-notice';box.setAttribute('role','alert');box.className='ui-health-notice';
   const text=document.createElement('span');text.textContent='Произошла ошибка интерфейса. Сохрани отчёт, если что-то не работает.';
   const report=document.createElement('button');report.textContent='Сохранить отчёт';report.addEventListener('click',()=>{
-   if(window.OrbitSupport?.ready())OrbitSupport.show();
+   if(window.OrbitSupport?.ready()&&!document.getElementById('app-splash'))OrbitSupport.show();
    else if(new URLSearchParams(location.search).get('demo')!=='1'&&window.CefSharp?.PostMessage)try{CefSharp.PostMessage(JSON.stringify({kind:'supportExport'}));}catch{}
   });
   const close=document.createElement('button');close.textContent='×';close.setAttribute('aria-label','Скрыть сообщение');close.addEventListener('click',()=>box.remove());

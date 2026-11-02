@@ -71,10 +71,8 @@ namespace Orbit
         public void Send(object value)
         {
             if (value == null || disposed) return;
-            var obj = value as JObject ?? JObject.FromObject(value);
-            var kind = (string)obj["kind"];
-            if (kind == "state") latest = value;
-            if (kind == "tab") currentTab = (string)obj["tab"];
+            if ((string)(JObject.FromObject(value)["kind"]) == "state") latest = value;
+            if ((string)(JObject.FromObject(value)["kind"]) == "tab") currentTab = (string)JObject.FromObject(value)["tab"];
             if (ready && !browser.IsDisposed) browser.ExecuteScriptAsync("window.OrbitAssistant&&window.OrbitAssistant.receive(" + JsonConvert.SerializeObject(value) + ");");
         }
         public void Dispose() { if (disposed) return; disposed = true; latest = null; browser.Dispose(); window.Close(); }

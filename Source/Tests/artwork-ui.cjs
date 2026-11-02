@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
  fs.mkdirSync(qa,{recursive:true});const browser=await chromium.launch({headless:true,executablePath:process.env.ORBIT_CHROME_PATH||undefined,args:['--no-sandbox']});
  try{
  const page=await browser.newPage({viewport:{width:1360,height:950}}),errors=[];page.on('pageerror',e=>errors.push(String(e)));
- await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>window.sent.push(JSON.parse(s))};});await page.goto(file);
+ await page.addInitScript(()=>{window.sent=[];window.CefSharp={PostMessage:s=>window.sent.push(JSON.parse(s))};});await page.goto(file);await page.evaluate(()=>{if(window.Orbit&&window.CefSharp?.PostMessage&&!location.search.includes('demo=1'))Orbit.receive({kind:'snapshot',data:{games:[],prefs:{},stores:[],downloads:[],notifications:[]}});});if(await page.locator('#app-splash').count())await page.waitForSelector('#app-splash',{state:'detached'});
  const receive=m=>page.evaluate(m=>Orbit.receive(m),m),last=kind=>page.evaluate(k=>sent.filter(m=>m.kind===k).at(-1),kind);
  const id='11111111-1111-1111-1111-111111111111',copy='22222222-2222-2222-2222-222222222222';
  const game={id,name:'Cyberpunk 2077',store:'steam',installed:true,cover:'assets/1091500.jpg',background:'assets/1091500-hero.jpg'},data={games:[game,{...game,id:copy,store:'gog'}],prefs:{},stores:[],downloads:[]};
@@ -33,7 +33,7 @@ const root=path.resolve(__dirname,'../..'),file=pathToFileURL(path.join(root,'en
  await page.locator('[data-art-upload="background"]').click();picked=await last('artworkPick');await page.keyboard.press('Escape');await page.locator('#modal-backdrop').waitFor({state:'hidden'});
  await receive({kind:'artworkPicked',requestId:picked.requestId,session,slot:'background',url:'assets/1145360.jpg',token:'late',name:'late.png'});assert.equal(await page.locator('#modal-backdrop').isHidden(),true,'Late import must not reopen editor');
  await page.locator('[data-view="list"]').click();assert.equal(await page.locator('.row-art-frame.is-icon img').getAttribute('src'),'assets/1145360.jpg');
- await page.goto(file+'?demo=1');await page.locator('[data-section="all"]').click();await page.locator('.poster').first().click();await page.locator('[data-customize]').click();
+ await page.goto(file+'?demo=1');await page.evaluate(()=>{if(window.Orbit&&window.CefSharp?.PostMessage&&!location.search.includes('demo=1'))Orbit.receive({kind:'snapshot',data:{games:[],prefs:{},stores:[],downloads:[],notifications:[]}});});if(await page.locator('#app-splash').count())await page.waitForSelector('#app-splash',{state:'detached'});await page.locator('[data-section="all"]').click();await page.locator('.poster').first().click();await page.locator('[data-customize]').click();
  // Exercise real browser decoding and canvas preview with a local fixture.
  await page.locator('[data-art-slot="icon"]').click();await page.locator('#art-demo-file').setInputFiles(path.join(root,'engine/Extensions/Orbit/ui/assets/1145360.jpg'));
  await page.waitForFunction(()=>document.querySelector('#art-live-icon').getAttribute('src')?.startsWith('data:image/png'));

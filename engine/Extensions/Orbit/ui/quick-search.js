@@ -20,7 +20,7 @@
   return res;
  }
 
- let api=null,qsTimer=null,qsSeq=0,activeIdx=-1,steamResults=[],isOpenState=false,currentQuery='',returnFocus=null;
+ let api=null,qsTimer=null,qsSeq=0,activeIdx=-1,steamResults=[],isOpenState=false,currentQuery='',returnFocus=null,searchPending=false,searchError='',inertLayers=[];
 
  function matchesQuery(name,q){
   if(!name||!q)return false;
@@ -69,6 +69,10 @@
  function bindEvents(){
   const backdrop=$('#quick-search-backdrop');
   if(!backdrop)return;
+  backdrop.addEventListener('keydown',e=>{
+   if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();return;}
+   if(e.key==='Tab'){e.stopPropagation();const items=[...backdrop.querySelectorAll('input,button')].filter(x=>!x.disabled&&x.getClientRects().length),first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}
+  },true);
   backdrop.addEventListener('click',e=>{
    if(e.target===backdrop||e.target.closest('#quick-search-close-btn')){
     close();
@@ -76,8 +80,9 @@
    }
    const btn=e.target.closest('button[data-qs-action]');
    if(btn){
-    const act=btn.dataset.qsAction;
+    const act=btn.dataset.qsAction, product=steamResults.find(x=>(x.token||x.id)===btn.dataset.qsProduct);
     close();
+    if(act==='product'&&product){api?.openProduct?.(product);return;}
     if(act==='play'&&btn.dataset.qsId)api?.play?.(btn.dataset.qsId);
     else if(act==='open'&&btn.dataset.qsKey)api?.openKey?.(btn.dataset.qsKey);
     return;
@@ -94,10 +99,12 @@
  }
 
  function open(){
+  if(isOpenState)return;
   ensureDom();
   const backdrop=$('#quick-search-backdrop');
   if(!backdrop)return;
   returnFocus=document.activeElement;
+  inertLayers=[$('#app'),$('#modal-backdrop')].filter(Boolean).map(el=>[el,el.inert]);inertLayers.forEach(([el])=>el.inert=true);
   backdrop.hidden=false;
   isOpenState=true;
   activeIdx=0;
@@ -114,9 +121,11 @@
  }
 
  function close(){
+  if(!isOpenState)return;
   const backdrop=$('#quick-search-backdrop');
   if(!backdrop)return;
   backdrop.hidden=true;
+  inertLayers.forEach(([el,value])=>el.inert=value);inertLayers=[];
   isOpenState=false;
   activeIdx=-1;
   currentQuery='';
@@ -144,7 +153,7 @@
   const recent=groups.filter(g=>g.lastPlayed>0||g.playtime>0).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).slice(0,5);
   const pool=recent.length?recent:groups.slice(0,5);
   results.innerHTML=`
-   <div class="quick-search-section-title"><span>Недавно играли · Быстрый запуск</span><small>Ctrl+F в любом месте</small></div>
+   <div class="quick-search-section-title"><span>${recent.length?'Недавно играли':'Твоя библиотека'} · Быстрый запуск</span><small>Ctrl+F в любом месте</small></div>
    ${pool.map((g,i)=>renderLibraryItem(g,i)).join('')}
    <div class="quick-search-section-title" style="margin-top:8px"><span>Быстрые разделы</span></div>
    <div style="display:flex;gap:8px;padding:4px 10px 8px;flex-wrap:wrap">
@@ -158,8 +167,9 @@
 
  function renderLibraryItem(g,idx){
   const art=safeImage(g.icon||g.cover||g.background);
-  const copyId=g.selected?.id||g.copies?.[0]?.id||g.id;
-  const isInstalled=Boolean(g.installed&&copyId);
+  const copy=g.selected?.installed?g.selected:g.copies?.find(c=>c.installed);
+  const copyId=copy?.id||g.selected?.id||g.copies?.[0]?.id||g.id;
+  const isInstalled=Boolean(copy?.installed&&!g.copies?.some(c=>c.running||c.launching||c.installing));
   return `
    <div class="quick-search-item ${idx===activeIdx?'active':''}"
         data-qs-idx="${idx}"
@@ -171,7 +181,7 @@
     <div class="quick-search-meta">
      <div class="quick-search-name">${esc(g.name)}</div>
      <div class="quick-search-sub">
-      <span>${esc(g.selected?.store?g.selected.store.toUpperCase():'PC')}</span>
+      <span>${esc((copy||g.selected)?.store?(copy||g.selected).store.toUpperCase():'PC')}</span>
       <span>·</span>
       <span>${isInstalled?'✓ На этом ПК':'В библиотеке'}</span>
       ${g.playtime?`<span>·</span><span>${Math.round(g.playtime/3600)} ч.</span>`:''}
@@ -218,6 +228,7 @@
  function handleInput(q){
   activeIdx=0;
   currentQuery=q;
+  steamResults=[];searchPending=false;searchError='';qsSeq++;
   if(!q){
    steamResults=[];
    renderRecentOrEmpty();
@@ -228,7 +239,8 @@
   renderResults(q,libMatches,steamResults);
 
   clearTimeout(qsTimer);
-  if(q.length>=2){
+  if(q.length>=3){
+   searchPending=true;renderResults(q,libMatches,steamResults);
    const reqSeq=++qsSeq;
    const reqQ=q;
    qsTimer=setTimeout(()=>{
@@ -252,7 +264,7 @@
    html+=steamItems.slice(0,6).map(p=>renderSteamItem(p,idx++)).join('');
   }
   if(!libMatches.length&&!steamItems.length){
-   html=`<div class="quick-search-empty"><p>Ищем «${esc(q)}» по библиотеке и витрине Steam…</p></div>`;
+   html=`<div class="quick-search-empty"><p>${searchError?esc(searchError):searchPending?'Ищем в библиотеке и витрине Steam…':q.length<3?'Введи не менее трёх символов для поиска в Steam.':'Ничего не найдено.'}</p></div>`;
   }
   results.innerHTML=html;
   highlightActive();
@@ -260,7 +272,7 @@
 
  function activateItem(item){
   if(!item)return;
-  const d=item.dataset;
+  const d=item.dataset,p=steamResults.find(x=>(x.token||x.id)===d.qsProduct);
   close();
   if(d.qsKind==='library'){
    if(d.qsInstalled==='true'&&d.qsId){
@@ -269,7 +281,6 @@
     api?.openKey?.(d.qsKey);
    }
   }else if(d.qsKind==='steam'&&d.qsProduct){
-   const p=steamResults.find(x=>(x.token||x.id)===d.qsProduct);
    if(p&&api?.openProduct)api.openProduct(p);
    else if(api?.openPrices)api.openPrices();
   }
@@ -310,12 +321,12 @@
  }
 
  function receive(m){
-  if(!isOpenState)return false;
-  if(m.kind==='pricesSearchResult'&&typeof m.requestId==='string'&&m.requestId.startsWith('qs-')){
+  if((m.kind==='pricesSearchResult'||m.kind==='pricesError')&&typeof m.requestId==='string'&&m.requestId.startsWith('qs-')){
+   if(!isOpenState)return true;
    const input=$('#quick-search-input');
    const liveQuery=input?input.value.trim():'';
    if(m.requestId==='qs-'+qsSeq&&liveQuery===currentQuery){
-    steamResults=m.data?.products||[];
+    searchPending=false;searchError=m.kind==='pricesError'?(m.message||'Не удалось загрузить каталог Steam.'):'';steamResults=m.data?.products||[];
     const groups=api?.groups?.()||[];
     const libMatches=currentQuery?groups.filter(g=>matchesQuery(g.name,currentQuery)).slice(0,6):[];
     renderResults(currentQuery,libMatches,steamResults);

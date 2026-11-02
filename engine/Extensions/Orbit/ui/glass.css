@@ -1,0 +1,122 @@
+/* Orbit glass — Apple-Intelligence look: ambient light, frosted materials, the AI gradient, spring motion.
+   Loaded after theme.css. Colours come from tokens.css, so every theme restyles this layer. */
+
+/* ── ambient light behind everything ─────────────────── */
+html{background:var(--canvas)}
+body,#app,main,.titlebar{background:transparent}
+body::before{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none;
+ background:
+  radial-gradient(46% 42% at 14% 8%,rgba(var(--amb-a-rgb),.58),transparent 72%),
+  radial-gradient(42% 44% at 90% 14%,rgba(var(--amb-b-rgb),.44),transparent 72%),
+  radial-gradient(52% 50% at 62% 100%,rgba(var(--amb-c-rgb),.50),transparent 72%);
+ animation:orbit-ambient 36s ease-in-out infinite alternate;will-change:transform}
+@keyframes orbit-ambient{to{transform:translate3d(-3%,2.5%,0) scale(1.1) rotate(2.5deg)}}
+
+/* ── frosted materials ───────────────────────────────── */
+#app>aside{background:rgba(12,14,22,.52);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-right:1px solid var(--glass-border)}
+#download-dock{background:var(--glass-dark);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+ margin:0 18px 14px;height:62px;flex:0 0 62px;border:1px solid var(--glass-border);border-radius:var(--r-xl);
+ box-shadow:0 14px 40px #0007,inset 0 1px 0 #ffffff1c}
+.home-card,.home-calendar,.home-skeleton{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--r-lg);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+.home-calendar{border-radius:var(--r-xl)}
+.search,.icon-button,.home-top-search,.view-tools select,.view-toggle{background:var(--glass);border:1px solid var(--glass-border);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.poster{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--r-lg)}
+.game-row,.dl-active{background:var(--glass);border-color:var(--glass-border)}
+.setting{background:transparent}
+#popover,#toast{background:var(--glass-dark);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:1px solid var(--glass-border)}
+#modal-backdrop{background:rgba(5,6,12,.5);-webkit-backdrop-filter:blur(20px) saturate(1.2);backdrop-filter:blur(20px) saturate(1.2);animation:orbit-fade .3s var(--smooth)}
+/* no backdrop-filter on #modal: it would become the containing block for position:fixed children (tooltips) */
+#modal{background:linear-gradient(160deg,rgba(30,34,52,.95),rgba(18,20,32,.96));
+ border:1px solid var(--glass-border);border-radius:var(--r-2xl);box-shadow:var(--shadow),inset 0 1px 0 #ffffff1c;animation:orbit-pop .5s var(--spring)}
+
+/* ── type ────────────────────────────────────────────── */
+header h1,.dl-header h1{font-size:34px;font-weight:700;letter-spacing:-.035em}
+.home-shelf-heading h2,.home-discover h2{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.home-featured-copy h2{font-size:42px;font-weight:700;letter-spacing:-.035em;text-shadow:0 2px 24px #0008}
+#modal h2{letter-spacing:-.025em}
+
+/* ── navigation ──────────────────────────────────────── */
+.nav-item{border-radius:var(--r-md)}
+.nav-item.active{background:linear-gradient(135deg,rgba(var(--accent-rgb),.26),rgba(var(--accent-rgb),.10));box-shadow:inset 0 1px 0 #ffffff1f,0 6px 18px rgba(var(--accent-rgb),.12)}
+.nav-item.active svg{color:var(--accent);filter:drop-shadow(0 0 6px rgba(var(--accent-rgb),.6))}
+.ai-nav svg,.ai-star{color:#c9a8ff;filter:drop-shadow(0 0 7px rgba(188,130,243,.85))}
+.brand svg{color:var(--accent)}
+
+/* ── controls ────────────────────────────────────────── */
+.primary{background:var(--accent);color:var(--on-accent);border-radius:999px;font-weight:600;
+ box-shadow:0 8px 22px rgba(var(--accent-rgb),.34),inset 0 1px 0 #ffffff66}
+.primary:hover{background:var(--accent);filter:brightness(1.07);box-shadow:0 10px 28px rgba(var(--accent-rgb),.46),inset 0 1px 0 #ffffff77}
+.secondary{background:var(--glass-2);border:1px solid var(--glass-border);border-radius:999px;color:var(--text)}
+.secondary:hover{background:rgba(255,255,255,.15)}
+.tabs button.active,.view-toggle .active{background:rgba(var(--accent-rgb),.22);color:var(--text);box-shadow:inset 0 1px 0 #ffffff1f}
+.home-featured-tab,.home-feature-shuffle{background:rgba(255,255,255,.10);border:1px solid var(--glass-border);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.home-featured-tab.active{background:#fff;color:#12141c}
+.switch.on{background:var(--accent)}
+.home-submit{background:var(--ai-gradient);background-size:240% 100%;color:#fff;border-radius:999px;font-weight:700;
+ box-shadow:0 8px 26px rgba(188,130,243,.42),inset 0 1px 0 #ffffff66;animation:orbit-shimmer 9s ease-in-out infinite alternate}
+.home-submit:hover{background:var(--ai-gradient);background-size:240% 100%;filter:brightness(1.08)}
+@keyframes orbit-shimmer{to{background-position:100% 0}}
+
+/* ── Apple-Intelligence glow around the AI card ───────── */
+.home-discover{position:relative;isolation:isolate;overflow:hidden;border:0;background:transparent;border-radius:var(--r-xl);-webkit-backdrop-filter:none;backdrop-filter:none}
+.home-discover::before{content:"";position:absolute;z-index:-2;left:50%;top:50%;width:1500px;height:1500px;margin:-750px 0 0 -750px;
+ background:conic-gradient(from 0deg,#bc82f3,#8d9fff,#aa6eee,#f5b9ea,#ff6778,#ffba71,#bc82f3);filter:blur(10px);opacity:.95;animation:orbit-spin 14s linear infinite}
+.home-discover::after{content:"";position:absolute;z-index:-1;inset:1.5px;border-radius:calc(var(--r-xl) - 1.5px);background:var(--ai-surface)}
+@keyframes orbit-spin{to{transform:rotate(360deg)}}
+.home-input-row{border:0;background:transparent;padding:0;gap:10px}
+.home-discover textarea{background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:var(--r-lg)}
+.home-discover textarea:focus{border-color:rgba(188,130,243,.7);box-shadow:0 0 0 4px rgba(188,130,243,.16)}
+
+/* ── download dock: a Dynamic-Island style pill with an aurora progress line ── */
+#dock-progress-fill{background:var(--ai-gradient);background-size:300% 100%;border-radius:999px;box-shadow:0 0 14px rgba(188,130,243,.55);animation:orbit-shimmer 6s linear infinite alternate}
+.dl-progress i,#dl-progress-fill{background:var(--ai-gradient);background-size:300% 100%;border-radius:999px;box-shadow:0 0 14px rgba(188,130,243,.45)}
+
+/* ── hero ────────────────────────────────────────────── */
+.home-featured{border-radius:var(--r-2xl);border:1px solid var(--glass-border);box-shadow:0 22px 60px #0006}
+.home-featured-art{animation:orbit-drift 28s ease-in-out infinite alternate}
+@keyframes orbit-drift{from{transform:scale(1)}to{transform:scale(1.08) translate3d(-1.2%,-1%,0)}}
+
+/* ── cards: lift, press, staggered arrival ───────────── */
+.game-card{animation:orbit-rise .6s var(--smooth) both}
+.game-card:nth-child(2){animation-delay:.03s}.game-card:nth-child(3){animation-delay:.06s}.game-card:nth-child(4){animation-delay:.09s}
+.game-card:nth-child(5){animation-delay:.12s}.game-card:nth-child(6){animation-delay:.15s}.game-card:nth-child(7){animation-delay:.18s}
+.game-card:nth-child(8){animation-delay:.21s}.game-card:nth-child(9){animation-delay:.24s}.game-card:nth-child(10){animation-delay:.27s}
+.game-card:nth-child(n+11){animation-delay:.3s}
+.poster,.poster:hover{transition:transform .45s var(--spring),box-shadow .35s var(--smooth),border-color .25s}
+.poster:hover{transform:translateY(-6px) scale(1.035);border-color:rgba(255,255,255,.34);box-shadow:0 22px 44px #000a,0 0 0 1px rgba(var(--accent-rgb),.22)}
+.poster:active{transform:scale(.985);transition-duration:.12s}
+.home-card{transition:transform .4s var(--spring),border-color .25s,background .25s}
+.home-card:hover{transform:translateY(-3px);background:var(--glass-2);border-color:rgba(255,255,255,.22)}
+.nav-item,.primary,.secondary,.quiet,.tabs button,.home-featured-tab{transition:background .25s var(--smooth),color .2s,transform .3s var(--spring),box-shadow .3s var(--smooth),filter .2s}
+.nav-item:active,.primary:active,.secondary:active,.quiet:active,.tabs button:active,.home-featured-tab:active{transform:scale(.96)}
+
+/* ── view transitions (class set by themes.js) ───────── */
+main.view-enter #home-view,main.view-enter #library,main.view-enter #queue-view,main.view-enter #activity-view,main.view-enter #minecraft-view,main.view-enter #download-view{animation:orbit-view .55s var(--smooth)}
+@keyframes orbit-view{from{opacity:0;transform:translate3d(0,14px,0) scale(.992)}to{opacity:1;transform:none}}
+@keyframes orbit-rise{from{opacity:0;transform:translate3d(0,16px,0) scale(.97)}to{opacity:1;transform:none}}
+@keyframes orbit-pop{from{opacity:0;transform:translate3d(0,18px,0) scale(.94)}to{opacity:1;transform:none}}
+@keyframes orbit-fade{from{opacity:0}to{opacity:1}}
+
+/* ── theme picker (settings) ─────────────────────────── */
+.theme-swatches{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.theme-swatch{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;color:var(--muted);font-size:var(--fs-xs);padding:4px;border-radius:var(--r-md);cursor:pointer}
+.theme-swatch i{width:34px;height:34px;border-radius:50%;border:2px solid transparent;box-shadow:0 0 0 1px var(--glass-border),0 6px 14px #0006;transition:transform .35s var(--spring),box-shadow .25s}
+.theme-swatch:hover i{transform:scale(1.1)}
+.theme-swatch.active{color:var(--text)}
+.theme-swatch.active i{box-shadow:0 0 0 2px var(--text),0 6px 16px #0007}
+[data-theme-set="aurora"] i{background:conic-gradient(#bc82f3,#8d9fff,#f5b9ea,#ff6778,#bc82f3)}
+[data-theme-set="ocean"] i{background:conic-gradient(#2080ff,#14d2c8,#6e5aff,#7fd8ff,#2080ff)}
+[data-theme-set="sunset"] i{background:conic-gradient(#ff7850,#ff5096,#a05aff,#ffb08f,#ff7850)}
+[data-theme-set="graphite"] i{background:conic-gradient(#5a6e96,#86b7ec,#464f64,#86b7ec,#5a6e96)}
+
+/* ── accessibility: honour reduced motion ────────────── */
+@media(prefers-reduced-motion:reduce){body::before,.home-discover::before,.home-featured-art,.home-submit,#dock-progress-fill{animation:none}.game-card,#modal,#modal-backdrop,main.view-enter>*{animation:none!important}}
+.motion-off body::before,.motion-off .home-discover::before,.motion-off .home-featured-art,.motion-off .home-submit,.motion-off #dock-progress-fill{animation:none}
+.motion-off .game-card,.motion-off #modal,.motion-off #modal-backdrop,.motion-off main.view-enter>*{animation:none!important}
+
+/* keep the title readable while its poster is lifted */
+.game-card:hover .game-title,.game-card:focus-within .game-title{color:var(--text);opacity:1}
+
+/* Respect the Windows motion setting and Orbit’s own preference across every section. */
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition-duration:0s!important;scroll-behavior:auto!important}}
+.motion-off *,.motion-off *::before,.motion-off *::after{animation:none!important;transition-duration:0s!important;scroll-behavior:auto!important}

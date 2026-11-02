@@ -45,7 +45,7 @@ namespace Orbit {
    var picks=data["games"] as JArray;if(picks==null)throw new InvalidOperationException("В ответе Gemini нет списка игр.");
    var known=library.ToDictionary(g=>g.id);var result=new HomeAdvice{reply=Clean((string)data["reply"])};
    foreach(var p in picks.Take(12)){var name=Clean((string)p["name"],180);var id=(string)p["libraryId"]??"";
-    HomeGame game;if(id!=""&&(!known.TryGetValue(id,out game)||PriceService.Normalize(game.name)!=PriceService.Normalize(name))){result.discarded++;continue;}
+    HomeGame game;if(id!="") { if(!known.TryGetValue(id,out game)){result.discarded++;continue;} name=Clean(game.name,180); }
     if((only&&id=="")||name.Length<2||name.Length>180){result.discarded++;continue;}
     if(result.games.Any(x=>PriceService.Normalize(x.name)==PriceService.Normalize(name)))continue;
     result.games.Add(new HomePick{name=name,libraryId=id,reason=Clean((string)p["reason"],240)});if(result.games.Count==6)break;

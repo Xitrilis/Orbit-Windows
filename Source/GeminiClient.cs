@@ -37,9 +37,17 @@ namespace Orbit
             if (jpeg != null && jpeg.Length > 4 * 1024 * 1024) throw new ArgumentException("Слишком большой снимок.");
             var contents = new JArray();
             // Only text is carried to later turns. Old frames are not sent again.
-            foreach (var turn in history.Skip(Math.Max(0, history.Count() - 10)))
+            var recent = (history ?? Enumerable.Empty<AiTurn>()).Where(t => t != null).ToList();
+            foreach (var turn in recent.Skip(Math.Max(0, recent.Count - 10)))
                 if ((turn.role == "user" || turn.role == "model") && !string.IsNullOrWhiteSpace(turn.text))
-                    contents.Add(new JObject { ["role"] = turn.role, ["parts"] = new JArray(new JObject { ["text"] = turn.text.Length > 16000 ? turn.text.Substring(0, 16000) : turn.text }) });
+                {
+                    if (contents.Count == 0 && turn.role != "user") continue;
+                    var part = new JObject { ["text"] = turn.text.Length > 16000 ? turn.text.Substring(0, 16000) : turn.text };
+                    if (contents.Count > 0 && (string)contents.Last["role"] == turn.role) ((JArray)contents.Last["parts"]).Add(part);
+                    else contents.Add(new JObject { ["role"] = turn.role, ["parts"] = new JArray(part) });
+                }
+            // An unfinished previous user message is superseded by the current question.
+            if (contents.Count > 0 && (string)contents.Last["role"] == "user") contents.RemoveAt(contents.Count - 1);
             var parts = new JArray();
             if (jpeg != null) parts.Add(new JObject { ["inlineData"] = new JObject { ["mimeType"] = "image/jpeg", ["data"] = Convert.ToBase64String(jpeg) } });
             var context = "Игра: " + (game ?? "не выбрана") + ". Магазин: " + (store ?? "не выбран") + ".\n";
@@ -88,7 +96,7 @@ namespace Orbit
                 {
                     var id = (string)model["name"] ?? "";
                     if (!id.StartsWith("models/gemini-", StringComparison.Ordinal) || !(model["supportedGenerationMethods"] as JArray ?? new JArray()).Values<string>().Contains("generateContent")) continue;
-                    if (Regex.IsMatch(id, "image|audio|tts|robotics|embedding|live|omni", RegexOptions.IgnoreCase)) continue;
+                    if (Regex.IsMatch(id, "image|audio|tts|robotics|embedding|live", RegexOptions.IgnoreCase)) continue;
                     list.Add(new AiModel { id = ModelId(id), name = (string)model["displayName"] ?? id });
                 }
                 next = (string)result["nextPageToken"]; if (string.IsNullOrEmpty(next)) break;

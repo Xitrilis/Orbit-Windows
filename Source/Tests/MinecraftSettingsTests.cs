@@ -1,0 +1,15 @@
+using System;using System.IO;using System.Threading.Tasks;using Orbit;
+class MinecraftSettingsTests {
+ static int count;static string root=Path.Combine(Path.GetTempPath(),"orbit-mc-settings-"+Guid.NewGuid());
+ static void Check(bool value,string name){if(!value)throw new Exception(name);Console.WriteLine("PASS "+(++count)+" "+name);}
+ static void Fails(Action action,string name){try{action();}catch{Check(true,name);return;}throw new Exception(name);}
+ static void Main(){Directory.CreateDirectory(root);try{
+  var shared=new MinecraftSettingsStore(root);var prism=shared;var horizon=shared;var first=prism.Snapshot();var packs=Path.Combine(root,"New Packs");horizon.Update(s=>s.packFolder=packs);prism.Update(s=>s.askRadmin=false);Check(shared.Snapshot().packFolder==packs&&!shared.Snapshot().askRadmin,"Prism preference update cannot revert Horizon pack folder");Check(first.packFolder=="","old snapshots stay detached");var rev=shared.Revision;var snapshot=shared.Snapshot();snapshot.packFolder=Path.Combine(root,"tamper");Check(shared.Snapshot().packFolder==packs,"UI snapshots cannot mutate shared settings");
+  var exe=Path.Combine(root,"Prism","prismlauncher.exe");prism.Update(s=>s.prismExe=exe);horizon.Update(s=>s.packFolder=Path.Combine(root,"Packs 2"));Check(shared.Snapshot().prismExe==exe,"Horizon folder update preserves Prism selection");Check(shared.Revision==rev+2,"each saved update invalidates stale scans");
+  var before=File.ReadAllText(Path.Combine(root,"minecraft-settings.json"));rev=shared.Revision;Fails(()=>shared.Update(s=>{s.askRadmin=true;s.packFolder="relative/path";}),"invalid changes rejected atomically");Check(File.ReadAllText(Path.Combine(root,"minecraft-settings.json"))==before&&shared.Revision==rev&&!shared.Snapshot().askRadmin,"rejected update leaves file, memory and generation intact");
+  Parallel.Invoke(()=>prism.Update(s=>s.curseRoot=Path.Combine(root,"Curse")),()=>horizon.Update(s=>s.radminExe=Path.Combine(root,"RvRvpnGui.exe")));Check(shared.Snapshot().curseRoot.EndsWith("Curse")&&shared.Snapshot().radminExe.EndsWith("RvRvpnGui.exe"),"concurrent distinct settings changes both survive");var reload=new MinecraftSettingsStore(root);Check(reload.Snapshot().prismExe==exe&&reload.Snapshot().packFolder.EndsWith("Packs 2"),"shared settings persist across restart");
+  File.WriteAllText(Path.Combine(root,"minecraft-settings.json"),"{schema:2}");var future=new MinecraftSettingsStore(root);Check(future.ReadOnly,"future shared settings remain read-only");Fails(()=>future.Update(s=>s.packFolder=packs),"neither controller can overwrite future settings");
+  var failedRoot=Path.Combine(root,"blocked");Directory.CreateDirectory(failedRoot);var fail=new MinecraftSettingsStore(failedRoot);Directory.CreateDirectory(Path.Combine(failedRoot,"minecraft-settings.json"));Fails(()=>fail.Update(s=>s.packFolder=packs),"write failure surfaced");Check(fail.Snapshot().packFolder==""&&fail.Revision==0,"failed save does not publish changed settings");
+  Console.WriteLine("Shared Minecraft settings: "+count+" checks passed.");
+ }finally{Directory.Delete(root,true);}}
+}

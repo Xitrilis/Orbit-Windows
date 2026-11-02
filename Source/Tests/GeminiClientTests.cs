@@ -25,6 +25,8 @@ static class GeminiClientTests
         var text = GeminiClient.BuildRequest("Portal 2", "steam", "Как пройти?", history, null, null, true);
         Check(!text.ToString().Contains("inlineData"), "Text-only request leaked an image");
         Check(((JArray)text["contents"]).Count == 3, "Conversation missing");
+        var uneven = GeminiClient.BuildRequest("Portal 2", "steam", "Новый вопрос", new[] { new AiTurn { role = "model", text = "Лишний ответ" }, new AiTurn { role = "user", text = "Старый вопрос" }, new AiTurn { role = "user", text = "Ещё вопрос" } }, null, null, true);
+        Check(((JArray)uneven["contents"]).Count == 1 && (string)uneven.SelectToken("contents[0].role") == "user", "Unfinished history was not normalized");
         Check(text["systemInstruction"].ToString().Contains("Без сюжетных спойлеров"), "Spoiler instruction missing");
         Pass("text-only request, bounded conversation and spoiler preference");
         var image = GeminiClient.BuildRequest("Portal 2", "steam", "Что на кадре?", history, new byte[] { 1, 2, 3 }, "LOCAL REPORT", false);
