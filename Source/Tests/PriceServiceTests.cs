@@ -53,6 +53,21 @@ class PriceServiceTests
                 var h=new Http{respond=r=>r.RequestUri.Host=="www.cbr.ru"?Json(Fx()):Json("{items:[{type:'app',id:10,name:'Fixture Game',price:{currency:'KZT',final:150000,initial:200000}}]}")};
                 using(var s=new PriceService(h)) {var a=new PriceAccount{country="KZ",currency="RUB"};var r=await s.Search("steam","Fixture Game",a,false,CancellationToken.None);Check(r.products[0].preview.rub==300m&&r.products[0].preview.kzt==1500m,"converted");Check(r.products[0].preview.note.Contains("KZT"),"currency mismatch");Check(h.urls[0].Contains("cc=kz"),"country");await s.Search("steam","Fixture Game",a,false,CancellationToken.None);Check(h.urls.Count==2,"cache");await s.Search("steam","Fixture Game",a,true,CancellationToken.None);Check(h.urls.Count==4,"force");}
             });
+            await TestAsync("HTTP layer coalesces identical in-flight requests and retries 429 once", async () => {
+                var counts = new Dictionary<string, int>();
+                var h = new Http { respond = r => {
+                    var u = r.RequestUri.AbsoluteUri; int n; lock (counts) { counts.TryGetValue(u, out n); counts[u] = n + 1; n = counts[u]; }
+                    if (u.Contains("storesearch")) return n == 1 ? Json("", HttpStatusCode.TooManyRequests) : Json("{items:[{type:'app',id:10,name:'Fixture Game'}]}");
+                    return Json(Fx());
+                } };
+                using (var s = new PriceService(h)) {
+                    var a = new PriceAccount { country = "KZ" };
+                    var both = await Task.WhenAll(s.Search("steam", "Fixture Game", a, true, CancellationToken.None), s.Search("steam", "Fixture Game", a, true, CancellationToken.None));
+                    var url = h.urls.First(u => u.Contains("storesearch")); int n; lock (counts) n = counts[url];
+                    Check(n == 2, "first 429 retried once and the concurrent duplicate coalesced (calls=" + n + ")");
+                    Check(both[0].products.Count == 1 && both[1].products.Count == 1, "both callers receive the retried result");
+                }
+            });
             await TestAsync("A failed provider does not hide the official quote", async () => {
                 var h=new Http{respond=r=>r.RequestUri.Host=="www.cbr.ru"?Json(Fx()):r.RequestUri.Host=="store.steampowered.com"?Json("{'10':{success:true,data:{name:'Fixture Game',is_free:false,price_overview:{currency:'RUB',initial:120000,final:90000}}}}") :Json("",(HttpStatusCode)429)};
                 using(var s=new PriceService(h)) {var c=await s.Compare(new PriceProduct{id="10",name="Fixture Game",store="steam"},new PriceSettings{accounts=new Dictionary<string,PriceAccount>{{"steam",new PriceAccount{country="RU"}}}},false,CancellationToken.None);Check(c.sources[0].offers.Single().rub==900m,"official");Check(c.sources.Where(x=>x.source!="steam").All(x=>x.status=="error"&&x.offers.Count==0),"isolated errors");}

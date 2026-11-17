@@ -134,6 +134,7 @@ namespace Orbit
             menu.Items.Add("Обновить библиотеку", null, (s,e) => Ui(Refresh));
             menu.Items.Add("Показать окна клиентов", null, (s,e) => Ui(() => backgroundClients?.RestoreAll()));
             menu.Items.Add("Сохранить отчёт об ошибке", null, (s,e) => Ui(() => ExportSupport()));
+            menu.Items.Add("Проверить целостность файлов", null, (s,e) => Ui(IntegrityCheck));
             menu.Items.Add("Открыть Playnite", null, (s,e) => Ui(ShowEngine));
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("Выйти", null, (s,e) => Ui(() => Application.Current.Shutdown()));
@@ -226,10 +227,20 @@ namespace Orbit
         void Snapshot(bool force = false)
         {
             if (!ready || exiting) return;
-            var gs = PlayniteApi.Database.Games.Where(g => StoreOf(g) != null).Select(g => {
+            var library = PlayniteApi.Database.Games.Where(g => StoreOf(g) != null).ToArray();
+            var storeNames = library.Select(g => StoreOf(g)).ToArray();
+            var key = JsonConvert.SerializeObject(new {
+                games = library.Select((g, i) => new { id = g.Id.ToString(), appId = g.GameId, name = g.Name, store = storeNames[i], installed = g.IsInstalled, installing = g.IsInstalling, launching = g.IsLaunching, running = g.IsRunning, favorite = g.Favorite, playtime = g.Playtime, lastPlayed = g.LastActivity, icon = g.Icon, cover = g.CoverImage, background = g.BackgroundImage, description = g.Description == null ? 0 : g.Description.Length * 31 + g.Description.GetHashCode() }).ToArray(),
+                prefs, startup = StartupState(), stores = stores.Select(s => new { id = s, available = Plugin(s) != null }).ToArray(),
+                notifications = PlayniteApi.Notifications.Messages.Where(n => n.Type == NotificationType.Error).Select(n => n.Text).Take(6).ToArray(),
+                journal = gameJournal?.Snapshot().revision, activity = playHistory?.Revision, activityWarning = playHistory?.Warning,
+                backgroundClients = new { enabled = (bool?)prefs["backgroundClients"] != false, hiddenStores = backgroundClients?.HiddenStores ?? new string[0], warning = backgroundClients?.Warning }
+            });
+            if (!force && lastSnapshot == key) return;
+            var gs = library.Select((g, i) => {
                 var visual = artwork?.View(g);
                 return new {
-                    id = g.Id.ToString(), appId = g.GameId, name = g.Name, store = StoreOf(g), installed = g.IsInstalled, installing = g.IsInstalling,
+                    id = g.Id.ToString(), appId = g.GameId, name = g.Name, store = storeNames[i], installed = g.IsInstalled, installing = g.IsInstalling,
                     launching = g.IsLaunching, running = g.IsRunning, favorite = g.Favorite, playtime = g.Playtime,
                     lastPlayed = g.LastActivity, icon = visual?["icon"].url ?? Art(g.Icon), cover = visual?["cover"].url ?? Art(g.CoverImage),
                     background = visual?["background"].url ?? Art(g.BackgroundImage), artwork = visual,
@@ -240,9 +251,7 @@ namespace Orbit
             }).ToArray();
             if(playHistory?.Warning!=null)diagnosticLog?.Record("history.warning",component:"history");if(backgroundClients?.Warning!=null)diagnosticLog?.Record("clients.warning",component:"clients");
             var snapshot = new { kind = "snapshot", data = new { games = gs, prefs, startup=StartupState(), stores = stores.Select(s => new { id = s, available = Plugin(s) != null }), downloads = DownloadRows(), journal = gameJournal?.Snapshot(), activity = playHistory?.Snapshot() ?? new PlaySession[0], activityWarning = playHistory?.Warning, backgroundClients = new { enabled = (bool?)prefs["backgroundClients"] != false, hiddenStores = backgroundClients?.HiddenStores ?? new string[0], warning = backgroundClients?.Warning }, notifications = PlayniteApi.Notifications.Messages.Where(n => n.Type == NotificationType.Error).Select(n => n.Text).Take(6).ToArray() } };
-            var key = JsonConvert.SerializeObject(new { snapshot.data.games, snapshot.data.prefs, snapshot.data.stores, snapshot.data.notifications, snapshot.data.journal, snapshot.data.activity, snapshot.data.activityWarning, snapshot.data.backgroundClients });
             var json = JsonConvert.SerializeObject(snapshot);
-            if (!force && lastSnapshot == key) return;
             lastSnapshot = key; ExecuteJson(json);
         }
         void ExecuteJson(string json) { if (ready && browser != null && !browser.IsDisposed) browser.ExecuteScriptAsync("window.Orbit&&window.Orbit.receive(" + json.Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029") + ");"); }

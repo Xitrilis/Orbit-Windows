@@ -99,9 +99,13 @@ namespace Orbit
     public sealed partial class PriceService : IDisposable
     {
         sealed class Cached { public string body; public DateTime at; }
+        static readonly string[] AllowedHosts = { "store.steampowered.com", "store.epicgames.com", "catalog.gog.com", "plati.io", "api.digiseller.com", "funpay.com", "www.cbr.ru", "partner.steamgames.com", "store-site-backend-static.ak.epicgames.com", "store.ea.com", "drop-api.ea.com", "store.ubisoft.com", "api.egdata.app", "egs-platform-service.store.epicgames.com" };
+        const int MinHostIntervalMs = 120, RetryDelayMs = 800;
         readonly HttpClient http;
         readonly bool nativeEpicTransport;
         readonly Dictionary<string, Cached> cache = new Dictionary<string, Cached>();
+        readonly Dictionary<string, Task<Cached>> inFlight = new Dictionary<string, Task<Cached>>();
+        readonly Dictionary<string, DateTime> lastRequestUtc = new Dictionary<string, DateTime>();
         readonly object cacheLock = new object();
         public static readonly string[] Stores = { "steam", "epic", "gog", "ea", "ubisoft", "battlenet" };
         public static readonly string[] AutomaticStores = { "steam", "epic", "gog", "ea", "ubisoft" };
@@ -164,17 +168,42 @@ namespace Orbit
             Cached saved;
             lock (cacheLock) if (!force && cache.TryGetValue(url, out saved) && DateTime.UtcNow - saved.at < TimeSpan.FromMinutes(minutes)) return saved;
             var uri = new Uri(url);
-            if (uri.Scheme != "https" || !new[] { "store.steampowered.com", "store.epicgames.com", "catalog.gog.com", "plati.io", "api.digiseller.com", "funpay.com", "www.cbr.ru", "partner.steamgames.com", "store-site-backend-static.ak.epicgames.com", "store.ea.com", "drop-api.ea.com", "store.ubisoft.com", "api.egdata.app", "egs-platform-service.store.epicgames.com" }.Contains(uri.Host)) throw new InvalidOperationException("Источник не разрешён.");
-            using (var response = await http.GetAsync(uri, ct).ConfigureAwait(false))
+            if (uri.Scheme != "https" || !AllowedHosts.Contains(uri.Host)) throw new InvalidOperationException("Источник не разрешён.");
+            Task<Cached> pending;
+            lock (cacheLock) inFlight.TryGetValue(url, out pending);
+            if (pending != null) { ct.ThrowIfCancellationRequested(); return await pending.ConfigureAwait(false); }
+            var task = Fetch(uri, url, ct);
+            lock (cacheLock) inFlight[url] = task;
+            try { return await task.ConfigureAwait(false); }
+            finally { lock (cacheLock) { Task<Cached> current; if (inFlight.TryGetValue(url, out current) && ReferenceEquals(current, task)) inFlight.Remove(url); } }
+        }
+        async Task<Cached> Fetch(Uri uri, string url, CancellationToken ct)
+        {
+            for (var attempt = 0; ; attempt++)
             {
-                if (!response.IsSuccessStatusCode) throw new HttpRequestException((int)response.StatusCode == 429 ? "Источник ограничил частоту запросов. Попробуй позже." : "Источник не вернул данные (HTTP " + (int)response.StatusCode + ").");
-                var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("Слишком большой ответ источника.");
-                // Structural JSON/HTML/XML fields are UTF-8/ASCII. CBR's Cyrillic currency names are not consumed.
-                saved = new Cached { body = Encoding.UTF8.GetString(bytes), at = DateTime.UtcNow };
-                ct.ThrowIfCancellationRequested();
-                lock (cacheLock) { if (cache.Count > 120) cache.Clear(); cache[url] = saved; }
-                return saved;
+                int wait;
+                lock (cacheLock) { DateTime last; lastRequestUtc.TryGetValue(uri.Host, out last); wait = Math.Max(0, MinHostIntervalMs - (int)(DateTime.UtcNow - last).TotalMilliseconds); }
+                if (wait > 0) await Task.Delay(wait, ct).ConfigureAwait(false);
+                lock (cacheLock) lastRequestUtc[uri.Host] = DateTime.UtcNow;
+                HttpResponseMessage response;
+                try { response = await http.GetAsync(uri, ct).ConfigureAwait(false); }
+                catch (HttpRequestException) when (attempt == 0 && !ct.IsCancellationRequested) { await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false); continue; }
+                using (response)
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var code = (int)response.StatusCode;
+                        if (attempt == 0 && (code == 429 || code >= 500)) { await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false); continue; }
+                        throw new HttpRequestException(code == 429 ? "Источник ограничил частоту запросов. Попробуй позже." : "Источник не вернул данные (HTTP " + code + ").");
+                    }
+                    var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("Слишком большой ответ источника.");
+                    // Structural JSON/HTML/XML fields are UTF-8/ASCII. CBR's Cyrillic currency names are not consumed.
+                    var saved = new Cached { body = Encoding.UTF8.GetString(bytes), at = DateTime.UtcNow };
+                    ct.ThrowIfCancellationRequested();
+                    lock (cacheLock) { if (cache.Count > 120) cache.Clear(); cache[url] = saved; }
+                    return saved;
+                }
             }
         }
         static string Failure(Exception e) => e is TaskCanceledException || e is OperationCanceledException ? "Источник не ответил вовремя. Повтори запрос." : e is HttpRequestException ? e.Message : "Формат ответа изменился или данные отсутствуют. Открой источник.";
