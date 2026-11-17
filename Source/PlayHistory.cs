@@ -11,6 +11,7 @@ namespace Orbit {
  public sealed class PlayHistory {
   readonly string path;readonly object gate=new object();List<PlaySession> rows=new List<PlaySession>();bool blocked,saveFailed,recoveredFromBackup;
   public string Warning {get;private set;}
+  public long Revision {get;private set;}
   public PlayHistory(string directory) {
    Directory.CreateDirectory(directory);path=Path.Combine(directory,"play-history.json");
    if(File.Exists(path)||File.Exists(path+".bak")){try{rows=Read(path);}catch{try{rows=Read(path+".bak");recoveredFromBackup=true;Warning="История восстановлена из резервной копии.";}catch{blocked=true;Warning="Не удалось прочитать историю. Старые файлы сохранены; новые запуски записываются только в память.";} }}
@@ -30,12 +31,12 @@ namespace Orbit {
   }
   public void Started(string gameId,string name,string store,DateTime at) {
    if(!Guid.TryParse(gameId,out _)||string.IsNullOrWhiteSpace(name)||!new[]{"steam","epic","ea","gog","ubisoft","battlenet"}.Contains(store))return;
-   lock(gate){if(rows.Any(r=>r.gameId==gameId&&r.state=="running"))return;rows.Insert(0,new PlaySession{id=Guid.NewGuid().ToString(),gameId=gameId,name=name.Substring(0,Math.Min(300,name.Length)),store=store,startedAt=Utc(at),state="running"});rows=rows.OrderByDescending(r=>r.startedAt).Take(2000).ToList();Save();}
+   lock(gate){if(rows.Any(r=>r.gameId==gameId&&r.state=="running"))return;rows.Insert(0,new PlaySession{id=Guid.NewGuid().ToString(),gameId=gameId,name=name.Substring(0,Math.Min(300,name.Length)),store=store,startedAt=Utc(at),state="running"});rows=rows.OrderByDescending(r=>r.startedAt).Take(2000).ToList();Revision++;Save();}
   }
   public void Stopped(string gameId,DateTime at,ulong seconds,bool trackingStopped=false) {
-   lock(gate){var r=rows.FirstOrDefault(x=>x.gameId==gameId&&x.state=="running");if(r==null)return;r.endedAt=trackingStopped?(DateTime?)null:(Utc(at)<r.startedAt?r.startedAt:Utc(at));r.seconds=!trackingStopped&&seconds<=31536000?(ulong?)seconds:null;r.state=trackingStopped?"interrupted":"completed";Save();}
+   lock(gate){var r=rows.FirstOrDefault(x=>x.gameId==gameId&&x.state=="running");if(r==null)return;r.endedAt=trackingStopped?(DateTime?)null:(Utc(at)<r.startedAt?r.startedAt:Utc(at));r.seconds=!trackingStopped&&seconds<=31536000?(ulong?)seconds:null;r.state=trackingStopped?"interrupted":"completed";Revision++;Save();}
   }
   public PlaySession[] Snapshot(){lock(gate)return rows.OrderByDescending(r=>r.startedAt).Select(r=>new PlaySession{id=r.id,gameId=r.gameId,name=r.name,store=r.store,state=r.state,startedAt=r.startedAt,endedAt=r.endedAt,seconds=r.seconds}).ToArray();}
-  public void Shutdown(){lock(gate){foreach(var r in rows.Where(r=>r.state=="running"))r.state="interrupted";Save();}}
+  public void Shutdown(){lock(gate){foreach(var r in rows.Where(r=>r.state=="running"))r.state="interrupted";Revision++;Save();}}
  }
 }
