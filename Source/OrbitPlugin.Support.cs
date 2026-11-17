@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK.Models;
@@ -45,6 +46,20 @@ namespace Orbit {
     }
    }catch(Exception ex){diagnosticLog?.Record("report.failed",ex,"support");if(!exiting){if(requestId==null)Forms.MessageBox.Show("Не удалось сохранить отчёт. Выбери другую доступную папку.","Orbit",Forms.MessageBoxButtons.OK,Forms.MessageBoxIcon.Error);else Send(new{kind="supportError",requestId,message="Не удалось сохранить отчёт. Выбери другую доступную папку."});}}
    finally{exportingSupport=false;}
+  }
+  async void IntegrityCheck() {
+   try {
+    var orbitRoot = Path.GetFullPath(Path.Combine(root, ".."));
+    var manifestFile = Path.Combine(orbitRoot, "RuntimeFiles.sha256");
+    if (!File.Exists(manifestFile)) { if (!exiting) Send(new { kind = "toast", message = "Манифест RuntimeFiles.sha256 не найден рядом с Orbit.exe." }); return; }
+    var manifest = File.ReadAllText(manifestFile);
+    var issues = await Task.Run(() => StartupIntegrity.Check(orbitRoot, manifest, CancellationToken.None));
+    if (exiting) return;
+    diagnosticLog?.Record(issues.Count > 0 ? "startup.integrity.failed" : "startup.integrity.ok", component: "support", number: issues.Count);
+    if (issues.Count == 0) { Send(new { kind = "toast", message = "Целостность файлов Orbit подтверждена." }); return; }
+    Send(new { kind = "toast", message = "Найдено расхождений с манифестом: " + issues.Count + ". Подробности — в журнале." });
+    PlayniteApi.Dialogs.ShowErrorMessage("Найдено расхождений: " + issues.Count + ".\n\n" + string.Join("\n", issues.Take(10)) + "\n\nПолный список — в журнале Orbit (Настройки → Поддержка).", "Orbit — проверка целостности");
+   } catch (Exception e) { diagnosticLog?.Record("report.failed", e, "support"); if (!exiting) Send(new { kind = "toast", message = "Не удалось выполнить проверку целостности." }); }
   }
   void OpenLogs() {
    Directory.CreateDirectory(diagnosticLog.DirectoryPath);

@@ -134,6 +134,7 @@ namespace Orbit
             menu.Items.Add("Обновить библиотеку", null, (s,e) => Ui(Refresh));
             menu.Items.Add("Показать окна клиентов", null, (s,e) => Ui(() => backgroundClients?.RestoreAll()));
             menu.Items.Add("Сохранить отчёт об ошибке", null, (s,e) => Ui(() => ExportSupport()));
+            menu.Items.Add("Проверить целостность файлов", null, (s,e) => Ui(IntegrityCheck));
             menu.Items.Add("Открыть Playnite", null, (s,e) => Ui(ShowEngine));
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("Выйти", null, (s,e) => Ui(() => Application.Current.Shutdown()));
