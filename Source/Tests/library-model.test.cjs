@@ -9,3 +9,5 @@ test('smart punctuation and trademarks normalize; sequel numbers remain distinct
 test('search, provider and installation filters compose',()=>{assert.equal(C.filterGames(C.groupGames(games),{search:'HOGWARTS',store:'epic',installed:true}).length,1);});
 test('running/installing/launching states prevent duplicate launch commands',()=>{assert.equal(C.action({running:true}).disabled,true);assert.equal(C.action({launching:true}).disabled,true);assert.equal(C.action({installing:true}).kind,'client');});
 test('metadata containing markup stays data in the model',()=>{const s='<img src=x onerror=alert(1)>';assert.equal(C.groupGames([{id:'z',name:s,store:'steam'}])[0].name,s);});
+test('artwork slots fall back to raw fields and stay non-custom by default',()=>{const g=C.groupGames(games)[0];for(const s of ['icon','cover','background']){assert.equal(g.artwork[s].custom,false);assert.equal(g.artwork[s].url,g[s]||'');}});
+test('genre filter matches the union of copy genres only',()=>{const g=C.groupGames(games);assert.equal(C.filterGames(g,{genre:'Adventure'}).length,1);assert.equal(C.filterGames(g,{genre:'RPG'}).length,0);});
